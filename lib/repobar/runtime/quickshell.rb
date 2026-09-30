@@ -63,8 +63,8 @@ module RepoBar
 
       def repobar_executable
         candidates = [
-          File.join(Dir.home, ".local", "bin", "repobar"),
           File.expand_path("../../../bin/repobar", __dir__),
+          File.join(Dir.home, ".local", "bin", "repobar"),
           "repobar"
         ]
         candidates.find { |candidate| candidate == "repobar" || File.executable?(candidate) } || "repobar"

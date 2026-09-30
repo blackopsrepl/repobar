@@ -3,6 +3,12 @@
 require_relative "test_helper"
 
 class RuntimeTest < Minitest::Test
+  def test_quickshell_uses_the_backend_from_its_own_installation
+    File.stub(:executable?, true) do
+      assert_equal File.expand_path("../bin/repobar", __dir__), RepoBar::Runtime::QuickShell.repobar_executable
+    end
+  end
+
   def test_snapshot_contains_view_and_waybar_work_classes
     config = build_config
     repos = [
