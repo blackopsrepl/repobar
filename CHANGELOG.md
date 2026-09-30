@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.0.1](https://github.com/blackopsrepl/repobar/compare/v2.0.0...v2.0.1) (2026-09-30)
+
+
+### Features
+
+* **release:** publish releases from tags on both targets b6e578e
+
 ## [2.0.0](https://github.com/blackopsrepl/repobar/compare/v1.1.0...v2.0.0) (2026-09-30)
 
 
