@@ -13,6 +13,7 @@ ShellRoot {
     property string snapshotPath: stateDir + "/snapshot.json"
     property string uiPath: stateDir + "/ui.json"
     property string searchPath: stateDir + "/search.json"
+    property string threadPath: stateDir + "/thread.json"
     property string stateEventPath: stateDir + "/state-event.json"
     property string textFont: "Fira Code"
 
@@ -97,6 +98,10 @@ ShellRoot {
     property string triageQuery: ""
     property bool triageGrouped: true
     property var triageOpened: ({})
+    // Threads are fetched on demand (one item at a time) and land in thread.json,
+    // so the reader never blocks on the network. threadView is shaped here from
+    // the watched file; threadRequestedId marks the item the panel asked for.
+    property string threadRequestedId: ""
 
     component RepoActionButton: Button {
         id: actionButton
@@ -394,6 +399,141 @@ ShellRoot {
         }
     }
 
+    // One conversation entry: avatar, author, what they did, and the full body.
+    component ThreadEntry: Rectangle {
+        id: threadEntry
+
+        property var entry: null
+
+        implicitWidth: 200
+        implicitHeight: entryColumn.implicitHeight + 16
+        radius: 3
+        color: root.theme.surfaceAlt
+        border.width: 1
+        border.color: entry && entry.kind === "review" && (entry.state || "").toUpperCase() === "CHANGES_REQUESTED"
+            ? root.theme.bad
+            : root.theme.border
+
+        ColumnLayout {
+            id: entryColumn
+            anchors.fill: parent
+            anchors.margins: 8
+            spacing: 5
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 6
+
+                ThreadAvatarBox {
+                    avatarUrl: threadEntry.entry ? (threadEntry.entry.authorAvatarUrl || "") : ""
+                    authorName: threadEntry.entry ? threadEntry.entry.author : ""
+                    boxSize: 18
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    elide: Text.ElideRight
+                    text: threadEntry.entry ? ("@" + threadEntry.entry.author) : ""
+                    color: root.theme.text
+                    font.family: root.textFont
+                    font.pixelSize: 10
+                    font.bold: true
+                }
+
+                Text {
+                    visible: threadEntry.entry && (threadEntry.entry.inReplyToId > 0)
+                    text: "↳ reply"
+                    color: root.theme.textMuted
+                    font.family: root.textFont
+                    font.pixelSize: 8
+                }
+
+                Text {
+                    text: threadEntry.entry ? threadEntry.entry.createdText : ""
+                    color: root.theme.textMuted
+                    font.family: root.textFont
+                    font.pixelSize: 9
+                }
+            }
+
+            Text {
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                text: threadEntry.entry ? root.threadEntryLabel(threadEntry.entry) : ""
+                textFormat: Text.PlainText
+                color: root.triageToneColor(threadEntry.entry ? root.threadEntryTone(threadEntry.entry) : "info")
+                font.family: root.textFont
+                font.pixelSize: 9
+                wrapMode: Text.WrapAnywhere
+            }
+
+            Text {
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                textFormat: Text.PlainText
+                visible: !!(threadEntry.entry && (threadEntry.entry.body || "").length > 0)
+                text: threadEntry.entry ? threadEntry.entry.body : ""
+                color: root.theme.accent
+                font.family: root.textFont
+                font.pixelSize: 11
+                wrapMode: Text.Wrap
+            }
+
+            Text {
+                Layout.fillWidth: true
+                visible: !!(threadEntry.entry && (threadEntry.entry.body || "").length === 0)
+                text: "(no body)"
+                color: root.theme.textMuted
+                font.family: root.textFont
+                font.pixelSize: 10
+                font.italic: true
+            }
+        }
+    }
+
+    // A conversation entry's avatar, with the initial fallback. GitHub CDN URLs
+    // load directly; a missing or broken image degrades to the initial.
+    component ThreadAvatarBox: Rectangle {
+        id: avatarBox
+
+        property string avatarUrl: ""
+        property string authorName: ""
+        property int boxSize: 28
+
+        width: avatarBox.boxSize
+        height: avatarBox.boxSize
+        radius: 4
+        color: root.theme.bg
+        border.color: root.theme.border
+        border.width: 1
+        clip: true
+
+        Image {
+            id: avatarImage
+            anchors.fill: parent
+            anchors.margins: 1
+            source: avatarBox.avatarUrl || ""
+            sourceSize.width: avatarBox.boxSize * 2
+            sourceSize.height: avatarBox.boxSize * 2
+            fillMode: Image.PreserveAspectCrop
+            asynchronous: true
+            cache: true
+            visible: (avatarBox.avatarUrl || "").length > 0 && status === Image.Ready
+        }
+
+        Text {
+            anchors.centerIn: parent
+            visible: !(avatarBox.avatarUrl || "").length || avatarImage.status !== Image.Ready
+            text: ((avatarBox.authorName || "?").toString().slice(0, 1) || "?").toUpperCase()
+            color: root.theme.goodSoft
+            font.family: root.textFont
+            font.pixelSize: Math.max(8, Math.round(avatarBox.boxSize * 0.5))
+            font.bold: true
+        }
+
+    }
+
     // Compact labelled toggle for the triage filter bar.
     component TriageFilterChip: Rectangle {
         id: filterChip
@@ -625,6 +765,7 @@ ShellRoot {
         snapshotFile.reload()
         uiFile.reload()
         searchFile.reload()
+        threadFile.reload()
     }
 
     function heatmapText(repo) {
@@ -1051,6 +1192,112 @@ ShellRoot {
         }
     }
 
+    // ---- thread (on-demand conversation) ----
+
+    function threadForItem(item) {
+        // Only trust thread.json when it describes the item the panel asked for,
+        // so switching items can never show the previous item's conversation.
+        if (!item || !item.id) {
+            return null
+        }
+        if (threadAdapter.itemId !== item.id) {
+            return null
+        }
+        return {
+            status: threadAdapter.status,
+            itemId: threadAdapter.itemId,
+            entries: threadAdapter.entries || [],
+            truncated: threadAdapter.truncated,
+            error: threadAdapter.error
+        }
+    }
+
+    function threadLoading(item) {
+        if (!item) {
+            return false
+        }
+        if (root.threadRequestedId === item.id && threadAdapter.itemId === item.id && threadAdapter.status === "loading") {
+            return true
+        }
+        return false
+    }
+
+    function threadCount(item) {
+        var thread = root.threadForItem(item)
+        return thread && thread.entries ? thread.entries.length : 0
+    }
+
+    function threadStatusText(item) {
+        var thread = root.threadForItem(item)
+        if (!thread) {
+            return ""
+        }
+        if (thread.status === "error") {
+            return thread.error || "Could not load the thread"
+        }
+        if (thread.status === "loading") {
+            return "Loading the conversation"
+        }
+        if (!thread.entries || thread.entries.length === 0) {
+            return "No comments on this item yet"
+        }
+        var parts = [thread.entries.length + " entries"]
+        if (thread.truncated) {
+            parts.push("newest shown")
+        }
+        return parts.join("  ·  ")
+    }
+
+    function loadThread(item) {
+        if (!item || !item.id) {
+            return
+        }
+        root.threadRequestedId = item.id
+        runRepobar([
+            "thread", "fetch", item.id,
+            "--repo", item.repoFullName,
+            "--number", String(item.number),
+            "--kind", item.kind
+        ])
+    }
+
+    function loadSelectedThread() {
+        root.loadThread(root.selectedTriageItem())
+    }
+
+    function threadEntryLabel(entry) {
+        if (entry.kind === "review") {
+            var state = (entry.state || "").toUpperCase()
+            if (state === "APPROVED") { return "approved" }
+            if (state === "CHANGES_REQUESTED") { return "changes requested" }
+            if (state === "COMMENTED") { return "reviewed" }
+            if (state === "DISMISSED") { return "review dismissed" }
+            return "review"
+        }
+        if (entry.kind === "review-comment") {
+            var place = entry.path || "review comment"
+            return entry.line ? (place + ":" + entry.line) : place
+        }
+        return "commented"
+    }
+
+    function threadEntryTone(entry) {
+        if (entry.kind === "review") {
+            var state = (entry.state || "").toUpperCase()
+            if (state === "APPROVED") { return "good" }
+            if (state === "CHANGES_REQUESTED") { return "bad" }
+            return "info"
+        }
+        if (entry.kind === "review-comment") {
+            return "warn"
+        }
+        return "info"
+    }
+
+    function threadEntryInitial(entry) {
+        return ((entry.author || "?").toString().slice(0, 1) || "?").toUpperCase()
+    }
+
     function showOverviewMode() {
         runRepobar(["ui", "mode", "overview"])
     }
@@ -1128,6 +1375,29 @@ ShellRoot {
         }
     }
 
+    FileView {
+        id: threadFile
+        path: root.threadPath
+        watchChanges: true
+        onFileChanged: reload()
+
+        JsonAdapter {
+            id: threadAdapter
+            property string status: "idle"
+            property string itemId: ""
+            property string repoFullName: ""
+            property string number: ""
+            property string kind: ""
+            property string title: ""
+            property string url: ""
+            property string requestId: ""
+            property var entries: []
+            property bool truncated: false
+            property string error: ""
+            property string updatedAt: ""
+        }
+    }
+
     Component.onCompleted: root.reloadState()
 
     PanelWindow {
@@ -1184,6 +1454,12 @@ ShellRoot {
             context: Qt.WindowShortcut
             enabled: root.triageShortcutLive() && root.selectedTriageItem() !== null
             onActivated: root.openTriageItem(root.selectedTriageItem())
+        }
+        Shortcut {
+            sequence: "t"
+            context: Qt.WindowShortcut
+            enabled: root.triageShortcutLive() && root.selectedTriageItem() !== null && !root.threadLoading(root.selectedTriageItem())
+            onActivated: root.loadSelectedThread()
         }
         Shortcut {
             sequence: "r"
@@ -2613,6 +2889,89 @@ ShellRoot {
                                             wrapMode: Text.Wrap
                                         }
 
+                                        // Thread: the full conversation, fetched on
+                                        // demand into thread.json. Never blocks —
+                                        // this reads whatever is cached.
+                                        Rectangle {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 10
+                                            Layout.rightMargin: 10
+                                            implicitHeight: threadBlock.implicitHeight + 16
+                                            radius: 3
+                                            color: root.theme.bg
+                                            border.width: 1
+                                            border.color: root.theme.border
+                                            visible: root.selectedTriageItem() !== null
+
+                                            ColumnLayout {
+                                                id: threadBlock
+                                                anchors.fill: parent
+                                                anchors.margins: 8
+                                                spacing: 6
+
+                                                RowLayout {
+                                                    Layout.fillWidth: true
+                                                    spacing: 6
+
+                                                    Text {
+                                                        text: "Thread"
+                                                        color: root.theme.text
+                                                        font.family: root.textFont
+                                                        font.pixelSize: 11
+                                                        font.bold: true
+                                                    }
+
+                                                    Text {
+                                                        Layout.fillWidth: true
+                                                        text: root.threadStatusText(root.selectedTriageItem())
+                                                        color: root.threadForItem(root.selectedTriageItem()) && root.threadForItem(root.selectedTriageItem()).status === "error"
+                                                            ? root.theme.bad
+                                                            : root.theme.textMuted
+                                                        font.family: root.textFont
+                                                        font.pixelSize: 9
+                                                        elide: Text.ElideRight
+                                                    }
+
+                                                    Button {
+                                                        Layout.preferredHeight: 24
+                                                        text: root.threadCount(root.selectedTriageItem()) > 0 ? "Reload" : "Load thread"
+                                                        enabled: root.selectedTriageItem() !== null && !root.threadLoading(root.selectedTriageItem())
+                                                        onClicked: root.loadSelectedThread()
+                                                    }
+                                                }
+
+                                                Text {
+                                                    Layout.fillWidth: true
+                                                    visible: root.threadForItem(root.selectedTriageItem()) === null
+                                                    text: "Press t to load the whole conversation — comments, reviews and inline review notes."
+                                                    color: root.theme.textMuted
+                                                    font.family: root.textFont
+                                                    font.pixelSize: 9
+                                                    wrapMode: Text.Wrap
+                                                }
+
+                                                Text {
+                                                    Layout.fillWidth: true
+                                                    visible: root.threadLoading(root.selectedTriageItem())
+                                                    text: "Loading…"
+                                                    color: root.theme.info
+                                                    font.family: root.textFont
+                                                    font.pixelSize: 10
+                                                }
+
+                                                Repeater {
+                                                    model: root.threadForItem(root.selectedTriageItem())
+                                                        ? root.threadForItem(root.selectedTriageItem()).entries
+                                                        : []
+
+                                                    ThreadEntry {
+                                                        Layout.fillWidth: true
+                                                        entry: modelData
+                                                    }
+                                                }
+                                            }
+                                        }
+
                                         RowLayout {
                                             Layout.fillWidth: true
                                             Layout.margins: 10
@@ -2638,7 +2997,7 @@ ShellRoot {
                                             Layout.leftMargin: 10
                                             Layout.rightMargin: 10
                                             Layout.bottomMargin: 10
-                                            text: "j / k move  ·  n / p next flagged  ·  1-9 jump  ·  / filter  ·  f flagged  ·  s quiet  ·  g grouping  ·  [ ] repo  ·  A all repos  ·  o open  ·  r refresh"
+                                            text: "j / k move  ·  n / p next flagged  ·  1-9 jump  ·  / filter  ·  f flagged  ·  s quiet  ·  g grouping  ·  [ ] repo  ·  A all repos  ·  o open  ·  t thread  ·  r refresh"
                                             color: root.theme.borderStrong
                                             font.family: root.textFont
                                             font.pixelSize: 9
