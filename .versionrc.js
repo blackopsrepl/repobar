@@ -20,6 +20,6 @@ module.exports = {
   bumpFiles: [releaseLine],
   tagPrefix: 'v',
   releaseCommitMessageFormat: 'chore(release): {{currentTag}}',
-  commitUrlFormat: 'https://github.com/blackopsrepl/repobar-sway/commit/{{hash}}',
-  compareUrlFormat: 'https://github.com/blackopsrepl/repobar-sway/compare/{{previousTag}}...{{currentTag}}',
+  commitUrlFormat: 'https://github.com/blackopsrepl/repobar/commit/{{hash}}',
+  compareUrlFormat: 'https://github.com/blackopsrepl/repobar/compare/{{previousTag}}...{{currentTag}}',
 };
