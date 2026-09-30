@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: syntax, tests, lint, cli
+    runs-on: ruby
+    steps:
+      - name: Checkout
+        uses: https://data.forgejo.org/actions/checkout@v6
+
+      - name: Install QML and CLI tooling
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends ripgrep zsh jq qt6-declarative-dev-tools
+          rm -rf /var/lib/apt/lists/*
+          if ! command -v qmllint >/dev/null 2>&1; then
+            qml_lint_path="$(find /usr -type f -name qmllint -print -quit)"
+            test -n "$qml_lint_path"
+            ln -s "$qml_lint_path" /usr/local/bin/qmllint
+          fi
+
+      - name: Syntax check and test suite
+        run: |
+          ruby -wc $(rg --files bin lib test)
+          ruby -Itest test/run.rb
+
+      - name: Lint the QuickShell panel
+        run: qmllint frontend/quickshell/shell.qml
+
+      - name: Full release gate
+        run: bin/release-check

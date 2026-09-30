@@ -1,0 +1,120 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  verify:
+    name: verify tag, publish
+    runs-on: ruby
+    steps:
+      - name: Checkout tagged source
+        uses: https://data.forgejo.org/actions/checkout@v6
+
+      - name: Install QML and CLI tooling
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends jq qt6-declarative-dev-tools
+          rm -rf /var/lib/apt/lists/*
+          if ! command -v qmllint >/dev/null 2>&1; then
+            qml_lint_path="$(find /usr -type f -name qmllint -print -quit)"
+            test -n "$qml_lint_path"
+            ln -s "$qml_lint_path" /usr/local/bin/qmllint
+          fi
+
+      - name: Run release checks
+        run: bin/release-check
+
+      - name: Verify tag version
+        env:
+          RELEASE_TAG: ${{ forgejo.ref_name }}
+        run: |
+          expected="${RELEASE_TAG#v}"
+          actual="$(sed -n 's/^.*Current release: `v\([^`]*\)`.*$/\1/p' README.md)"
+          test -n "$actual"
+          test "$actual" = "$expected"
+
+  publish:
+    name: publish release and assets
+    needs: verify
+    runs-on: ruby
+    env:
+      RELEASE_TAG: ${{ forgejo.ref_name }}
+      FORGEJO_SERVER_URL: ${{ forgejo.server_url }}
+      FORGEJO_REPOSITORY: ${{ forgejo.repository }}
+      FORGEJO_TOKEN: ${{ forgejo.token }}
+    steps:
+      - name: Checkout tagged source
+        uses: https://data.forgejo.org/actions/checkout@v6
+
+      - name: Build source archive
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          archive="repobar-${version}.tar.gz"
+          # git archive honors .gitattributes export-ignore, so the archive ships
+          # the application without the release harness itself.
+          git archive --format=tar.gz --prefix="repobar-${version}/" --output="$archive" "$RELEASE_TAG"
+          sha256sum "$archive" > "${archive}.sha256"
+
+      - name: Publish Forgejo release
+        run: |
+          set -euo pipefail
+          api="${FORGEJO_SERVER_URL}/api/v1/repos/${FORGEJO_REPOSITORY}"
+          release_json="$(mktemp)"
+          release_status="$(curl -sS -o "$release_json" -w '%{http_code}' \
+            -H "Authorization: token ${FORGEJO_TOKEN}" \
+            "$api/releases/tags/${RELEASE_TAG}" || true)"
+
+          if [ "$release_status" = "200" ]; then
+            :
+          elif [ "$release_status" = "404" ]; then
+            version="${RELEASE_TAG#v}"
+            body="Release ${RELEASE_TAG}."
+            if [ -f CHANGELOG.md ]; then
+              changelog_body="$(awk -v tag="$version" '
+                /^## / {
+                  if (seen) exit
+                  if (index($0, "[" tag "]")) seen = 1
+                  next
+                }
+                seen { print }
+              ' CHANGELOG.md)"
+              if [ -n "${changelog_body//[[:space:]]/}" ]; then
+                body="$changelog_body"
+              fi
+            fi
+            jq -n \
+              --arg tag "$RELEASE_TAG" \
+              --arg body "$body" \
+              '{tag_name: $tag, name: ("RepoBar " + $tag), body: $body, draft: false, prerelease: false}' \
+              | curl -fsS -X POST \
+                  -H "Authorization: token ${FORGEJO_TOKEN}" \
+                  -H 'Content-Type: application/json' \
+                  --data-binary @- "$api/releases" > "$release_json"
+          else
+            printf 'Forgejo release lookup returned HTTP %s\n' "$release_status" >&2
+            cat "$release_json" >&2
+            exit 1
+          fi
+
+          release_id="$(jq -er '.id' "$release_json")"
+          assets_json="$(mktemp)"
+          curl -fsS \
+            -H "Authorization: token ${FORGEJO_TOKEN}" \
+            "$api/releases/${release_id}/assets" > "$assets_json"
+
+          for asset in repobar-*.tar.gz repobar-*.tar.gz.sha256; do
+            asset_name="$(basename "$asset")"
+            if jq -e --arg name "$asset_name" 'any(.[]; .name == $name)' "$assets_json" >/dev/null; then
+              printf 'Asset already published: %s\n' "$asset_name"
+              continue
+            fi
+            curl -fsS -X POST \
+              -H "Authorization: token ${FORGEJO_TOKEN}" \
+              -H 'Content-Type: application/octet-stream' \
+              --data-binary "@${asset}" \
+              "$api/releases/${release_id}/assets?name=${asset_name}" >/dev/null
+          done

@@ -1,0 +1,12 @@
+# Release archives carry the application, not the release harness. git archive
+# honors export-ignore, so the tarball published as a release asset omits CI
+# config and dev-only tooling.
+#
+# Deliberately NOT excluded: Makefile, bin, lib, frontend, docs, AGENTS.md and
+# test/. `make install-user` copies bin lib frontend README.md AGENTS.md docs,
+# so dropping any of those makes the documented install fail from the tarball.
+.github/                 export-ignore
+.forgejo/                export-ignore
+.ruby-lsp/               export-ignore
+.pre-commit-config.yaml  export-ignore
+.versionrc.js            export-ignore

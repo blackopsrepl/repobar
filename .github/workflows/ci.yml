@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: syntax, tests, lint, cli
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+
+      - name: Install QML and CLI tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ripgrep zsh jq qt6-declarative-dev-tools
+          if ! command -v qmllint >/dev/null 2>&1; then
+            qml_lint_path="$(find /usr -type f -name qmllint -print -quit)"
+            test -n "$qml_lint_path"
+            sudo ln -s "$qml_lint_path" /usr/local/bin/qmllint
+          fi
+
+      # bin/release-check skips its network steps when gh is unauthenticated, and
+      # skips the QuickShell load when quickshell is absent: CI runs the same gate
+      # a release tag must pass, with the same skips.
+      - name: Rubocop-free syntax check and test suite
+        run: |
+          ruby -wc $(rg --files bin lib test)
+          ruby -Itest test/run.rb
+
+      - name: Lint the QuickShell panel
+        run: qmllint frontend/quickshell/shell.qml
+
+      - name: CLI smoke
+        run: |
+          config="$(mktemp -t repobar-ci-XXXXXX.json)"
+          bin/repobar config init --config "$config" >/dev/null
+          bin/repobar config validate --config "$config"
+          bin/repobar waybar render --config "$config" >/dev/null
+          bin/repobar ui status --config "$config" --format json --pretty >/dev/null
+          bin/repobar ui mode triage --config "$config" >/dev/null
+
+      - name: Full release gate
+        run: bin/release-check
