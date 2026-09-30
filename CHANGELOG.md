@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.1.0](https://github.com/blackopsrepl/repobar/compare/v2.0.2...v2.1.0) (2026-09-30)
+
+
+### Features
+
+* **threads:** fetch complete conversations through daemon-owned state 90abf51
+* **triage:** show full conversations with author avatars 557c129
+
+
+### Bug Fixes
+
+* **ci:** syntax-check every Ruby file, not just the first c9cc5ac
+* **release:** resolve bare-version changelog headings in release notes 48969a6
+
 ## [2.0.2](https://github.com/blackopsrepl/repobar/compare/v2.0.1...v2.0.2) (2026-09-30)
 
 
