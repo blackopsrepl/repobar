@@ -6,6 +6,8 @@ on:
     branches:
       - main
   workflow_dispatch:
+  # The tag release calls this workflow so a tag passes the same gates as main.
+  workflow_call:
 
 permissions:
   contents: read

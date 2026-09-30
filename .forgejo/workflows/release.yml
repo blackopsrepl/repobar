@@ -16,7 +16,7 @@ jobs:
       - name: Install QML and CLI tooling
         run: |
           apt-get update
-          DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends jq qt6-declarative-dev-tools
+          DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends ripgrep zsh jq sqlite3 qt6-declarative-dev-tools
           rm -rf /var/lib/apt/lists/*
           if ! command -v qmllint >/dev/null 2>&1; then
             qml_lint_path="$(find /usr -type f -name qmllint -print -quit)"
@@ -24,6 +24,8 @@ jobs:
             ln -s "$qml_lint_path" /usr/local/bin/qmllint
           fi
 
+      # bin/release-check drives ripgrep, zsh, sqlite3 and qmllint. It skips its
+      # live GitHub steps (no gh auth) and its QuickShell load (no quickshell).
       - name: Run release checks
         run: bin/release-check
 

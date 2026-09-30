@@ -128,6 +128,16 @@ Triage keys: `j`/`k` move, `n`/`p` jump to the next/previous flagged item, `1`-`
 
 `omarchy install` mounts the Waybar chip as an Omarchy shell bar command module in `~/.config/omarchy/shell.json`, by default after `omarchy.weather`; it seeds the user file from the Omarchy defaults when missing. Flags: `--after ID`, `--section left|center|right`, `--index N`, `--interval SECONDS` (default 5), `--exec PATH`. `omarchy status` reports the installed module, and `omarchy remove` drops it.
 
+## Verification Targets
+
+- `make test` — the Ruby suite
+- `make syntax` — `ruby -wc` over `bin`, `lib` and `test` (requires `rg`)
+- `make lint` — `qmllint` on the QuickShell panel (requires Quickshell)
+- `make check` — `syntax`, the suite, and `config validate`
+- `bin/release-check` — the full local gate: syntax, suite, QML lint, CLI smoke,
+  archive import, live GitHub refresh when `gh` is authenticated, and a
+  QuickShell load when `quickshell` is present
+
 ## Settings
 
 - `repobar settings show`

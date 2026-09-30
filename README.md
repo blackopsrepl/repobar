@@ -170,6 +170,31 @@ bin/release-check
 
 See [docs/cli.md](docs/cli.md) for the full CLI surface and flags.
 
+## Continuous Integration And Releases
+
+Both publication targets run the same gate. A push to `main` and every pull
+request run `make check` plus the QuickShell contract test; a `v*` tag runs the
+same checks and then publishes a release.
+
+- GitHub Actions (`.github/workflows/`): `ci.yml` runs on main pushes and pull
+  requests; `release.yml` runs on a `v*` tag, reuses `ci.yml`, checks the tag
+  against the README version surface, and publishes a release whose notes are the
+  generated changelog section for that tag.
+- Forgejo Actions (`.forgejo/workflows/`): `ci.yml` runs on the local `ruby`
+  runner; `release.yml` verifies the tag, builds a source tarball with
+  `git archive`, and publishes a release with the tarball and its `sha256` as
+  assets.
+
+`README.md`'s `Current release` line is the version surface. `.versionrc.js`
+owns it, so a release is always `commit-and-tag-version` plus a push — never a
+hand edit. Both release workflows refuse a tag that does not match it.
+
+The QuickShell panel is not linted in CI: `qmllint` cannot resolve the
+Quickshell `ShellRoot` type off a Quickshell install and fails a clean panel.
+`make lint` runs it where Quickshell exists, `bin/release-check` skips it loudly
+when the imports are unresolvable, and `test/runtime_test.rb` asserts the panel's
+structural contract on every run.
+
 ## Verification
 
 ```bash
