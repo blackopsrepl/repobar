@@ -59,6 +59,13 @@ Default `repos` output comes from the cached snapshot, refreshing only when no s
 
 `discussions` and `contributions` are GitHub-only surfaces; `contributions` prints the GitHub contribution-chart image URL for a login.
 
+## Conversations
+
+- `repobar thread owner/name --number N --kind issue|pr --json`
+- `repobar thread fetch owner/name#N --repo owner/name --number N --kind issue|pr`
+
+`thread` reads the complete paginated conversation through the existing REST cache. Issues include comments; PRs include comments, reviews and inline review notes, merged chronologically with author avatars. An explicit `--limit N` keeps the newest N entries. `thread fetch` dispatches a daemon-owned async transaction to `thread.json`; the reader watches loading/ready/error state and rejects late results for older selections.
+
 ## Search
 
 - `repobar search query`
@@ -124,7 +131,7 @@ Visibility commands mutate `repoList.pinnedRepositories` and `repoList.hiddenRep
 
 `ui triage` opens the panel straight into triage mode: a cross-repository inbox of cached open pull requests and issues beside a full-body reader, fed by the presenter's triage projection. Each item carries an attention score, a bucket (`Needs attention` first, then `Today` / `This week` / `This month` / `Older`), an action line, a repo context block, and signals such as CI failing, local dirty, priority/blocked/bug/needs-review labels, unanswered issues, draft state, and staleness.
 
-Triage keys: `j`/`k` move, `n`/`p` jump to the next/previous flagged item, `1`-`9` jump to the nth item, `/` focuses the filter field, `f` toggles the flagged-only filter, `s` toggles the quiet-only filter, `g` toggles age grouping, `[`/`]` cycle the repo scope, `A` clears the repo scope, `o` opens the selected item, `r` refreshes. Clicking a repo-rail row scopes the inbox to that repo; middle-clicking it opens the repo. Filtering, selection, and reading never touch the network — triage is a projection of the cached snapshot. Single-letter triage keys are disabled while the triage filter field has focus, so typing a query never triggers a shortcut.
+Triage keys: `j`/`k` move, `n`/`p` jump to the next/previous flagged item, `1`-`9` jump to the nth item, `/` focuses the filter field, `f` toggles the flagged-only filter, `s` toggles the quiet-only filter, `g` toggles age grouping, `[`/`]` cycle the repo scope, `A` clears the repo scope, `o` opens the selected item, `t` loads its conversation, `r` refreshes. Clicking a repo-rail row scopes the inbox to that repo; middle-clicking it opens the repo. Filtering and selection never touch the network — triage is a projection of the cached snapshot. Loading a conversation is an explicit async action through the daemon and existing REST cache. Single-letter triage keys are disabled while the triage filter field has focus, so typing a query never triggers a shortcut.
 
 `omarchy install` mounts the Waybar chip as an Omarchy shell bar command module in `~/.config/omarchy/shell.json`, by default after `omarchy.weather`; it seeds the user file from the Omarchy defaults when missing. Flags: `--after ID`, `--section left|center|right`, `--index N`, `--interval SECONDS` (default 5), `--exec PATH`. `omarchy status` reports the installed module, and `omarchy remove` drops it.
 

@@ -33,6 +33,7 @@ Runtime state defaults to `~/.local/state/repobar/`.
 - `snapshot.json`: the canonical snapshot (repositories, local checkouts, account) plus presenter `view`, including `view.triage`.
 - `ui.json`: panel state (`open`, `mode` = `overview|triage`, `focusRepository`, `requestedAt`).
 - `search.json`: async search state.
+- `thread.json`: the selected conversation transaction, with loading/ready/error state, request identity and presenter-shaped entries. API responses stay in the existing REST cache.
 - `state-event.json`: stable watched reload signal.
 - `daemon.sock`: daemon action socket.
 - `cache/rest.json`, `cache/graphql.json`, and `cache/rate_limits.json`: network cache and rate-limit records.
@@ -41,6 +42,6 @@ Runtime state defaults to `~/.local/state/repobar/`.
 
 QuickShell renders a transparent full-screen modal overlay whose frame is centered vertically and horizontally with small screen margins. The content includes a header, optional account activity heatmap, search results, an issue/PR reader, and repo cards. Repo cards use compact controls for pinned drag, open, read, refresh, pin/unpin, and hide. The repo heatmap track is clipped inside the card so controls cannot force the row outside the panel.
 
-Triage mode replaces the repo list with three panes: a repo rail (per-repository pressure, click to scope, middle-click to open the repo), a filterable inbox (kind chips, flagged/quiet/repo/grouping chips, `/` text filter, attention-ordered with `Needs attention` first), and a reader showing the action line, the full explained signal set, the repo fact grid, toned label chips, and the full body. All three panes read the cached projection; nothing in triage fetches. Single-letter triage shortcuts stand down while the triage search field has focus.
+Triage mode replaces the repo list with three panes: a repo rail (per-repository pressure, click to scope, middle-click to open the repo), a filterable inbox (kind chips, flagged/quiet/repo/grouping chips, `/` text filter, attention-ordered with `Needs attention` first), and a reader showing the action line, the full explained signal set, the repo fact grid, toned label chips, and the full body. All three panes read the cached projection. The reader can explicitly load the full issue/PR conversation through a daemon action, paginated GitHub REST calls using the existing cache, and `thread.json`; navigation itself never fetches. Single-letter triage shortcuts stand down while the triage search field has focus.
 
 Waybar reads cached presenter state only. It never refreshes network data directly; refresh is a daemon action. Action-triggered refreshes may queue one pending follow-up, while scheduled timer ticks skip pending queueing when a refresh is already alive.
