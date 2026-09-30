@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   check:
-    name: syntax, tests, lint
+    name: syntax, tests, cli
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -23,18 +23,21 @@ jobs:
         with:
           ruby-version: "3.4"
 
-      - name: Install QML tooling
+      # make check needs ripgrep for its file list. It now fails fast when rg is
+      # missing rather than silently skipping the syntax check.
+      - name: Install gate tooling
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends ripgrep jq qt6-declarative-dev-tools
-          if ! command -v qmllint >/dev/null 2>&1; then
-            qml_lint_path="$(find /usr -type f -name qmllint -print -quit)"
-            test -n "$qml_lint_path"
-            sudo ln -s "$qml_lint_path" /usr/local/bin/qmllint
-          fi
+          sudo apt-get install --yes --no-install-recommends ripgrep
+          sudo rm -rf /var/lib/apt/lists/*
 
+      # Syntax, the Ruby test suite (which includes the QuickShell structural
+      # contract test), and config validation.
       - name: Run project checks
         run: make check
 
-      - name: Lint the QuickShell panel
-        run: qmllint frontend/quickshell/shell.qml
+# The panel is deliberately NOT linted here: qmllint cannot resolve the
+# Quickshell `ShellRoot` type (it ships only with a Quickshell install) and exits
+# non-zero on an otherwise clean panel, so a lint step would be permanently red
+# noise. `make lint` covers that locally where Quickshell is installed, and
+# test/runtime_test.rb asserts the panel's structural contract on every run.

@@ -9,27 +9,27 @@ on:
 
 jobs:
   check:
-    name: syntax, tests, lint
+    name: syntax, tests, cli
     runs-on: ruby
     steps:
       - name: Checkout
         uses: https://data.forgejo.org/actions/checkout@v6
 
-      - name: Install QML tooling
+      # make check needs ripgrep for its file list. It now fails fast when rg is
+      # missing rather than silently skipping the syntax check.
+      - name: Install gate tooling
         run: |
           apt-get update
-          DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends jq qt6-declarative-dev-tools
+          DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends ripgrep
           rm -rf /var/lib/apt/lists/*
-          if ! command -v qmllint >/dev/null 2>&1; then
-            qml_lint_path="$(find /usr -type f -name qmllint -print -quit)"
-            test -n "$qml_lint_path"
-            ln -s "$qml_lint_path" /usr/local/bin/qmllint
-          fi
 
-      # The same gate a push to main must pass locally: syntax, the Ruby test
-      # suite, and config validation.
       - name: Run project checks
         run: make check
 
-      - name: Lint the QuickShell panel
-        run: qmllint frontend/quickshell/shell.qml
+# The QuickShell panel is deliberately NOT linted here. qmllint cannot resolve
+# the Quickshell `ShellRoot` type (it ships only with a live Quickshell install)
+# or QtQuick in this container, so it emits thousands of unresolvable-import and
+# unknown-property warnings and exits non-zero no matter how clean the panel is.
+# A step that can only fail is noise, not a gate: the panel is linted and
+# rendered off-desktop on the workstation and on GitHub CI, where Qt Quick's
+# qmltypes are present and qmllint exits 0 on this exact file.

@@ -149,4 +149,44 @@ class RuntimeTest < Minitest::Test
     # Overview-only blocks disappear in triage mode.
     assert_match(/visible: !root\.triageMode\(\)/, qml)
   end
+
+  # qmllint cannot resolve the Quickshell `ShellRoot` type in CI, so CI cannot
+  # lint the panel. These structural assertions run everywhere Ruby runs and
+  # catch the panel defects that actually shipped this iteration.
+  def test_shell_qml_structural_contract
+    path = File.expand_path("../frontend/quickshell/shell.qml", __dir__)
+    qml = File.read(path)
+
+    # Balanced braces and parens: catches a mistyped handler or a dropped block
+    # in a 2800-line panel without needing a QML toolchain.
+    assert_equal qml.count("{"), qml.count("}"), "unbalanced braces in shell.qml"
+    assert_equal qml.count("("), qml.count(")"), "unbalanced parens in shell.qml"
+
+    # Repeater delegates must be Items; Shortcut is a QtObject, so generated
+    # numbered shortcuts require Instantiator.
+    qml.scan(/Repeater\s*\{(.*?)\n    \}/m).each do |block|
+      refute_match(/^\s*Shortcut\s*\{/m, block.first.to_s, "Repeater must not delegate a Shortcut")
+    end
+    assert_match(/Instantiator\s*\{\s*\n\s*model:\s*9/, qml)
+
+    # The triage filter field must not bind its own text to the property its
+    # edit handler writes, which re-resolves the binding mid-edit.
+    filter_block = qml[/id:\s*triageSearchInput.*?\n                            \}/m].to_s
+    refute_empty filter_block, "triage search field not found"
+    refute_match(/^\s*text:\s*root\.triageQuery/, filter_block)
+    assert_match(/onTextEdited:\s*root\.setTriageQuery\(text\)/, filter_block)
+
+    # Every single-letter triage shortcut stands down while the filter is focused.
+    %w[j k g f s].each do |key|
+      block = qml[/sequence:\s*"#{key}"\n(?:.*\n){0,4}?\s*enabled:\s*([^\n]+)/, 1].to_s
+      refute_empty block, "shortcut #{key} not found"
+      assert_includes block, "triageShortcutLive()", "shortcut #{key} is not gated on triageShortcutLive()"
+    end
+
+    # Triage panes and repo cards must not render at the same time.
+    assert_match(/visible:\s*!root\.triageMode\(\)/, qml)
+    %w[triageSplit repoRailCol inboxCol readerCol].each do |id|
+      assert_match(/id:\s*#{id}/, qml, "missing triage element #{id}")
+    end
+  end
 end
