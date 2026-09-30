@@ -563,6 +563,12 @@ module RepoBar
       subcommand = args[:positionals].first || "open"
       payload = case subcommand
                 when "open" then Runtime::QuickShell.open(config_path, args[:repo] || args[:positionals][1])
+                when "triage" then Runtime::QuickShell.open(config_path, args[:repo] || args[:positionals][1], mode: "triage")
+                when "mode"
+                  mode = args[:positionals][1].to_s
+                  raise ArgumentError, "mode must be overview or triage." unless %w[overview triage].include?(mode)
+
+                  Runtime::Store.open_panel(config_path, args[:repo] || args[:positionals][2], mode: mode)
                 when "close" then Runtime::QuickShell.close(config_path)
                 when "toggle" then Runtime::QuickShell.toggle(config_path, args[:repo] || args[:positionals][1])
                 when "status" then Runtime::QuickShell.status(config_path)

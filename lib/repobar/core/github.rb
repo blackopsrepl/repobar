@@ -109,8 +109,8 @@ module RepoBar
         name = repo[:name]
         issue_count = open_issue_count(config, token, "#{owner}/#{name}", repo)
         pull_count = open_pull_count(config, token, "#{owner}/#{name}", repo)
-        issue_items = issue_count.positive? ? issues(config, token, owner, name, 5) : []
-        pull_items = pull_count.positive? ? pulls(config, token, owner, name, 5) : []
+        issue_items = issue_count.positive? ? issues(config, token, owner, name, 20) : []
+        pull_items = pull_count.positive? ? pulls(config, token, owner, name, 20) : []
         release = latest_release(config, token, owner, name)
         ci = latest_ci(config, token, owner, name)
         activity = recent_activity(config, token, owner, name)
@@ -491,7 +491,8 @@ module RepoBar
           url: item[:html_url] || item["html_url"],
           body: item[:body] || item["body"],
           comments: (item[:comments] || item["comments"]).to_i,
-          reviewComments: (item[:review_comments] || item["review_comments"]).to_i
+          reviewComments: (item[:review_comments] || item["review_comments"]).to_i,
+          labels: Array(item[:labels] || item["labels"]).map { |label| label[:name] || label["name"] }
         }
       end
 

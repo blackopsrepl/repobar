@@ -139,6 +139,7 @@ module RepoBar
       def default_ui_state
         {
           open: false,
+          mode: "overview",
           focusRepository: "",
           requestedAt: ""
         }
@@ -158,8 +159,10 @@ module RepoBar
 
       def normalize_ui_state(ui_state)
         state = default_ui_state.merge((ui_state || {}).transform_keys(&:to_sym))
+        mode = %w[overview triage].include?(state[:mode].to_s) ? state[:mode].to_s : "overview"
         {
           open: !!state[:open],
+          mode: mode,
           focusRepository: state[:focusRepository].to_s,
           requestedAt: state[:requestedAt].to_s
         }

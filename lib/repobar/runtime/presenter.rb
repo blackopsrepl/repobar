@@ -10,12 +10,54 @@ module RepoBar
       def build_snapshot_view(config, snapshot, now = Time.now)
         repos = Array(snapshot[:repositories])
         summary = summary_view(config, snapshot, repos, now)
+        repo_views = repos.map { |repo| repo_view(config, repo, now) }
         {
           summary: summary,
           accountHeatmap: account_heatmap_view(snapshot.dig(:account, :heatmap)),
           chip: chip_view(summary, repos),
-          repositories: repos.map { |repo| repo_view(config, repo, now) },
-          localRepositories: Array(snapshot[:localRepositories])
+          repositories: repo_views,
+          localRepositories: Array(snapshot[:localRepositories]),
+          triage: triage_view(repo_views)
+        }
+      end
+
+      # Cross-repository work queue for the triage mode. One flat, newest-first
+      # inbox built entirely from the cached snapshot so the UI never blocks on
+      # the network. README-style separators come from this projection too.
+      def triage_view(repo_views)
+        items = repo_views.flat_map do |repo|
+          Array(repo[:pulls]).map { |item| triage_item(repo, item, "pr") } +
+            Array(repo[:issues]).map { |item| triage_item(repo, item, "issue") }
+        end
+        items.sort_by! { |item| item[:updatedAt].to_s }
+        items.reverse!
+        {
+          total: items.length,
+          pullCount: items.count { |item| item[:kind] == "pr" },
+          issueCount: items.count { |item| item[:kind] == "issue" },
+          items: items
+        }
+      end
+
+      def triage_item(repo, item, kind)
+        {
+          id: "#{repo[:fullName].to_s.downcase}##{item[:number]}",
+          kind: kind,
+          repoFullName: repo[:fullName],
+          owner: repo[:owner],
+          ownerAvatarUrl: repo[:ownerAvatarUrl],
+          number: item[:number],
+          title: item[:title],
+          author: item[:author],
+          draft: !!item[:draft],
+          updatedAt: item[:updatedAt],
+          updatedText: item[:updatedText],
+          url: item[:url],
+          labels: item[:labels],
+          comments: item[:comments].to_i,
+          reviewComments: item[:reviewComments].to_i,
+          body: item[:body],
+          bodyFull: item[:bodyFull]
         }
       end
 
@@ -224,7 +266,7 @@ module RepoBar
       end
 
       def readable_items(items, now)
-        Array(items).first(5).map { |item| readable_item(item, now) }
+        Array(items).first(20).map { |item| readable_item(item, now) }
       end
 
       def readable_item(item, now)
@@ -233,11 +275,12 @@ module RepoBar
           title: item[:title].to_s,
           author: item[:author].to_s,
           body: readable_body(item[:body]),
+          bodyFull: readable_full_body(item[:body]),
           state: item[:state].to_s,
           updatedAt: item[:updatedAt],
           updatedText: Core::Format.relative_time(item[:updatedAt], now),
           url: item[:url],
-          labels: Array(item[:labels]).first(4),
+          labels: Array(item[:labels]).first(6),
           draft: !!item[:draft],
           comments: item[:comments].to_i,
           reviewComments: item[:reviewComments].to_i
@@ -249,6 +292,13 @@ module RepoBar
         return "No description." if text.empty?
 
         text.length > 220 ? "#{text[0, 217]}..." : text
+      end
+
+      def readable_full_body(body)
+        text = body.to_s.gsub(/\r\n?/, "\n").strip
+        return "" if text.empty?
+
+        text.length > 8000 ? "#{text[0, 7997]}..." : text
       end
 
       def empty_heatmap_cells

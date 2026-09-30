@@ -30,7 +30,7 @@ Runtime state defaults to `~/.local/state/repobar/`.
 
 - `snapshot.json`: canonical current provider snapshot plus presenter `view`.
 - `providers/github.json` and `providers/forgejo.json`: provider-specific snapshots for instant provider switching.
-- `ui.json`: panel state.
+- `ui.json`: panel state (`open`, `mode` = `overview|triage`, `focusRepository`, `requestedAt`).
 - `search.json`: async search state.
 - `state-event.json`: stable watched reload signal.
 - `daemon.sock`: daemon action socket.

@@ -126,4 +126,24 @@ class RuntimeTest < Minitest::Test
     assert_equal first_inode, File.stat(event_path).ino
     assert_match(/updatedAt/, File.read(event_path))
   end
+
+  def test_shell_qml_wires_triage_mode
+    qml = File.read(File.expand_path("../frontend/quickshell/shell.qml", __dir__))
+
+    # Mode is driven by ui.json, not ad hoc UI state.
+    assert_match(/uiAdapter\.mode === "triage"/, qml)
+    assert_match(/runRepobar\(\["ui", "mode", "triage"\]\)/, qml)
+    assert_match(/runRepobar\(\["ui", "mode", "overview"\]\)/, qml)
+
+    # The inbox list exists and is selection-driven.
+    assert_match(/id: inboxList/, qml)
+    assert_match(/function moveTriageSelection\(/, qml)
+    assert_match(/function filteredTriageItems\(/, qml)
+
+    # The reader renders the full body from the snapshot projection.
+    assert_match(/bodyFull/, qml)
+
+    # Overview-only blocks disappear in triage mode.
+    assert_match(/visible: !root\.triageMode\(\)/, qml)
+  end
 end

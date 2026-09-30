@@ -113,6 +113,8 @@ Visibility commands mutate `repoList.pinnedRepositories` and `repoList.hiddenRep
 - `repobar daemon --once`
 - `repobar panel`
 - `repobar ui open`
+- `repobar ui triage`
+- `repobar ui mode overview|triage`
 - `repobar ui close`
 - `repobar ui toggle`
 - `repobar ui status`
@@ -125,7 +127,7 @@ Visibility commands mutate `repoList.pinnedRepositories` and `repoList.hiddenRep
 - `repobar omarchy remove`
 - `repobar open URL`
 
-`waybar render` reads cached state only. `waybar refresh` calls the daemon refresh path. Daemon-triggered refresh requests are coalesced so repeated UI actions can leave one active refresh and one pending follow-up, not one thread per click. `panel`, `ui open`, and `waybar panel` open the QuickShell panel.
+`waybar render` reads cached state only. `waybar refresh` calls the daemon refresh path. Daemon-triggered refresh requests are coalesced so repeated UI actions can leave one active refresh and one pending follow-up, not one thread per click. `panel`, `ui open`, and `waybar panel` open the QuickShell panel. `ui triage` opens it straight into triage mode: a cross-repository inbox of cached open pull requests and issues (newest first) beside a full-body reader. Triage is a projection of the cached snapshot — filtering, selection, and reading never touch the network.
 
 `omarchy install` mounts the Waybar chip as an Omarchy shell bar command module in `~/.config/omarchy/shell.json`, by default after `omarchy.weather`; it seeds the user file from the Omarchy defaults when missing. Flags: `--after ID`, `--section left|center|right`, `--index N`, `--interval SECONDS` (default 5), `--exec PATH`. `omarchy status` reports the installed module, and `omarchy remove` drops it.
 

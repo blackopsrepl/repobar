@@ -8,11 +8,12 @@ module RepoBar
     module Store
       module_function
 
-      def open_panel(config_path, repository = nil)
+      def open_panel(config_path, repository = nil, mode: nil)
         config = Core::Config.load_config(config_path)
         State.ensure_ui_state(config)
         state = State.read_ui_state(config)
         state[:open] = true
+        state[:mode] = mode.to_s if %w[overview triage].include?(mode.to_s)
         state[:focusRepository] = repository.to_s if repository
         state[:requestedAt] = timestamp
         State.write_ui_state(config, state)

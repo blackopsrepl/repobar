@@ -5,9 +5,9 @@ module RepoBar
     module QuickShell
       module_function
 
-      def open(config_path, repository = nil)
+      def open(config_path, repository = nil, mode: nil)
         config = Core::Config.load_config(config_path)
-        Daemon.dispatch_action(config_path, type: "open_panel", repository: repository.to_s)
+        Daemon.dispatch_action(config_path, type: "open_panel", repository: repository.to_s, mode: mode.to_s)
         ensure_running(config, config_path)
         status(config_path)
       end

@@ -130,7 +130,7 @@ module RepoBar
         mutex.synchronize do
           case type
           when "open_panel"
-            result = Store.open_panel(config_path, action[:repository])
+            result = Store.open_panel(config_path, action[:repository], mode: action[:mode])
           when "close_panel"
             result = Store.close_panel(config_path)
           when "set_provider"
