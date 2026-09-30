@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.1.0](https://github.com/blackopsrepl/repobar/compare/v1.0.1...v1.1.0) (2026-09-30)
+
+
+### Features
+
+* **build:** add install-user target for a ~/.local install 175b1e4
+* **omarchy:** mount the Waybar chip as an Omarchy shell bar module 948ce39
+* **triage:** add a visual cross-repo triage mode 487c965
+* **ui:** follow the active Omarchy theme 5c013a6
+
+
+### Bug Fixes
+
+* **omarchy:** embed the selected config in the bar module 6b56f8f
+* **omarchy:** reject an index past the section end 5603b41
+* **runtime:** coalesce bar refresh through the daemon action f7cffef
+
 ## [1.0.1](///compare/v1.0.0...v1.0.1) (2026-08-26)
 
 
