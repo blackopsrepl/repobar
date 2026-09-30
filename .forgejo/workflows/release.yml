@@ -83,10 +83,13 @@ jobs:
             version="${RELEASE_TAG#v}"
             body="Release ${RELEASE_TAG}."
             if [ -f CHANGELOG.md ]; then
+              # Older sections predate the link format: their heading is a bare
+              # "## 0.1.1 (2026-05-16)". Match both shapes precisely; matching on
+              # the version string alone also hits the 1.0.0 compare URL.
               changelog_body="$(awk -v tag="$version" '
                 /^## / {
                   if (seen) exit
-                  if (index($0, "[" tag "]")) seen = 1
+                  if (index($0, "[" tag "]") || index($0, " " tag " (")) seen = 1
                   next
                 }
                 seen { print }

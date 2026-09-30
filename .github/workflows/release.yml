@@ -39,6 +39,10 @@ jobs:
       # Notes come from the generated changelog section for this tag, not
       # --generate-notes: this repository curates its changelog through
       # commit-and-tag-version, and the release body should say the same thing.
+      # Older sections predate the link format: their heading is a bare
+      # "## 0.1.1 (2026-05-16)" rather than "## [0.1.1](compare-url)", so both
+      # shapes are matched. Matching on the version alone would be wrong: the
+      # 1.0.0 heading contains "0.1.1" inside its compare URL.
       - name: Publish the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -47,7 +51,7 @@ jobs:
           body="$(awk -v tag="${GITHUB_REF_NAME#v}" '
             /^## / {
               if (seen) exit
-              if (index($0, "[" tag "]")) seen = 1
+              if (index($0, "[" tag "]") || index($0, " " tag " (")) seen = 1
               next
             }
             seen { print }
