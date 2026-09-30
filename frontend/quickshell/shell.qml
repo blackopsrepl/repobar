@@ -102,6 +102,50 @@ ShellRoot {
     // so the reader never blocks on the network. threadView is shaped here from
     // the watched file; threadRequestedId marks the item the panel asked for.
     property string threadRequestedId: ""
+    property string threadDispatchError: ""
+    property string threadDispatchErrorId: ""
+    property int overviewIndex: 0
+    property bool readerContext: false
+    property var overviewItems: root.overviewWorkItems(root.selectedRepository)
+    property var conversationItem: root.triageMode() ? root.selectedTriageItem()
+        : (root.overviewItems[root.overviewIndex] || null)
+    property string conversationKey: uiAdapter.open && root.conversationItem ? root.conversationItem.id : ""
+    onSelectedRepositoryChanged: root.overviewIndex = 0
+    onConversationKeyChanged: conversationLoad.restart()
+
+    Timer {
+        id: conversationLoad
+        interval: 150
+        onTriggered: root.ensureConversation()
+    }
+
+    function overviewWorkItems(repo) {
+        if (!repo) { return [] }
+        var result = []
+        var kinds = ["pr", "issue"]
+        var groups = [repo.pulls || [], repo.issues || []]
+        for (var group = 0; group < groups.length; group++) {
+            for (var index = 0; index < groups[group].length; index++) {
+                var source = groups[group][index]
+                var item = {}
+                for (var key in source) { item[key] = source[key] }
+                item.id = repo.fullName.toLowerCase() + "#" + source.number
+                item.repoFullName = repo.fullName
+                item.kind = kinds[group]
+                result.push(item)
+            }
+        }
+        return result
+    }
+
+    function ensureConversation() {
+        var item = root.conversationItem
+        if (!root.conversationKey || !item) { return }
+        if (root.threadRequestedId === item.id) { return }
+        var thread = root.threadForItem(item)
+        if (thread && (thread.status === "ready" || thread.status === "loading")) { return }
+        root.loadThread(item)
+    }
 
     component RepoActionButton: Button {
         id: actionButton
@@ -399,96 +443,186 @@ ShellRoot {
         }
     }
 
-    // One conversation entry: avatar, author, what they did, and the full body.
-    component ThreadEntry: Rectangle {
+    // Conversation entries share an avatar rail; replies are inset without
+    // losing the merged chronological order of comments and reviews.
+    component ThreadEntry: Item {
         id: threadEntry
-
         property var entry: null
+        implicitWidth: 300
+        implicitHeight: Math.max(56, entryColumn.implicitHeight + 24)
 
-        implicitWidth: 200
-        implicitHeight: entryColumn.implicitHeight + 16
-        radius: 3
-        color: root.theme.surfaceAlt
-        border.width: 1
-        border.color: entry && entry.kind === "review" && (entry.state || "").toUpperCase() === "CHANGES_REQUESTED"
-            ? root.theme.bad
-            : root.theme.border
+        Rectangle {
+            x: 15
+            y: 32
+            width: 1
+            height: Math.max(0, parent.height - 24)
+            color: root.theme.border
+        }
 
-        ColumnLayout {
-            id: entryColumn
-            anchors.fill: parent
-            anchors.margins: 8
-            spacing: 5
+        ThreadAvatarBox {
+            avatarUrl: threadEntry.entry ? (threadEntry.entry.authorAvatarUrl || "") : ""
+            authorName: threadEntry.entry ? threadEntry.entry.author : ""
+            boxSize: 32
+            y: 4
+        }
 
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 6
+        Rectangle {
+            anchors.left: parent.left
+            anchors.leftMargin: threadEntry.entry && threadEntry.entry.inReplyToId > 0 ? 56 : 44
+            anchors.right: parent.right
+            height: parent.height
+            radius: 6
+            color: root.theme.surfaceAlt
+            border.width: 1
+            border.color: threadEntry.entry && threadEntry.entry.state === "CHANGES_REQUESTED" ? root.theme.bad : root.theme.border
 
-                ThreadAvatarBox {
-                    avatarUrl: threadEntry.entry ? (threadEntry.entry.authorAvatarUrl || "") : ""
-                    authorName: threadEntry.entry ? threadEntry.entry.author : ""
-                    boxSize: 18
+            ColumnLayout {
+                id: entryColumn
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: 12
+                spacing: 8
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+                    Text {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        text: threadEntry.entry ? "@" + (threadEntry.entry.author || "deleted user") : ""
+                        color: root.theme.text
+                        font.family: root.textFont
+                        font.pixelSize: 12
+                        font.bold: true
+                        elide: Text.ElideRight
+                    }
+                    Text {
+                        text: threadEntry.entry ? (threadEntry.entry.createdText || "") : ""
+                        color: root.theme.textMuted
+                        font.family: root.textFont
+                        font.pixelSize: 10
+                    }
                 }
 
                 Text {
                     Layout.fillWidth: true
                     Layout.minimumWidth: 0
-                    elide: Text.ElideRight
-                    text: threadEntry.entry ? ("@" + threadEntry.entry.author) : ""
-                    color: root.theme.text
+                    text: threadEntry.entry ? root.threadEntryLabel(threadEntry.entry) : ""
+                    textFormat: Text.PlainText
+                    color: root.triageToneColor(threadEntry.entry ? root.threadEntryTone(threadEntry.entry) : "info")
                     font.family: root.textFont
                     font.pixelSize: 10
-                    font.bold: true
+                    wrapMode: Text.WrapAnywhere
                 }
 
                 Text {
-                    visible: threadEntry.entry && (threadEntry.entry.inReplyToId > 0)
-                    text: "↳ reply"
-                    color: root.theme.textMuted
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    text: threadEntry.entry ? (threadEntry.entry.body || (threadEntry.entry.kind === "description" ? "No description." : "No review message.")) : ""
+                    textFormat: Text.PlainText
+                    color: root.theme.text
                     font.family: root.textFont
-                    font.pixelSize: 8
-                }
-
-                Text {
-                    text: threadEntry.entry ? threadEntry.entry.createdText : ""
-                    color: root.theme.textMuted
-                    font.family: root.textFont
-                    font.pixelSize: 9
+                    font.pixelSize: 12
+                    lineHeight: 1.35
+                    wrapMode: Text.Wrap
                 }
             }
+        }
+    }
 
+    component ConversationView: ColumnLayout {
+        id: conversation
+        property var item: null
+        property var thread: root.threadForItem(conversation.item)
+        property string dispatchError: conversation.item && root.threadDispatchErrorId === conversation.item.id ? root.threadDispatchError : ""
+        spacing: 12
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 8
             Text {
-                Layout.fillWidth: true
-                Layout.minimumWidth: 0
-                text: threadEntry.entry ? root.threadEntryLabel(threadEntry.entry) : ""
-                textFormat: Text.PlainText
-                color: root.triageToneColor(threadEntry.entry ? root.threadEntryTone(threadEntry.entry) : "info")
+                text: "Conversation"
+                color: root.theme.text
                 font.family: root.textFont
-                font.pixelSize: 9
-                wrapMode: Text.WrapAnywhere
+                font.pixelSize: 13
+                font.bold: true
             }
-
             Text {
                 Layout.fillWidth: true
-                Layout.minimumWidth: 0
+                text: conversation.dispatchError ? "Could not load conversation" : (conversation.thread ? root.threadStatusText(conversation.item) : "Fetching…")
+                color: conversation.dispatchError || (conversation.thread && conversation.thread.status === "error") ? root.theme.bad : root.theme.textMuted
+                font.family: root.textFont
+                font.pixelSize: 10
+                elide: Text.ElideRight
+            }
+            BusyIndicator {
+                Layout.preferredWidth: 24
+                Layout.preferredHeight: 24
+                running: root.threadLoading(conversation.item)
+                visible: running
+            }
+            RepoActionButton {
+                iconName: "refresh"
+                tooltip: conversation.thread && conversation.thread.status === "error" ? "Retry conversation" : "Refresh conversation"
+                enabled: conversation.item !== null && !root.threadLoading(conversation.item)
+                onClicked: root.loadThread(conversation.item)
+            }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.leftMargin: 44
+            visible: conversation.dispatchError.length > 0 || (conversation.thread !== null && conversation.thread.status === "error")
+            implicitHeight: conversationError.implicitHeight + 20
+            color: root.triageToneFill("bad")
+            border.color: root.theme.bad
+            radius: 4
+            Text {
+                id: conversationError
+                anchors.fill: parent
+                anchors.margins: 10
+                text: conversation.dispatchError || (conversation.thread ? conversation.thread.error : "")
                 textFormat: Text.PlainText
-                visible: !!(threadEntry.entry && (threadEntry.entry.body || "").length > 0)
-                text: threadEntry.entry ? threadEntry.entry.body : ""
-                color: root.theme.accent
+                color: root.theme.bad
                 font.family: root.textFont
                 font.pixelSize: 11
                 wrapMode: Text.Wrap
             }
+        }
 
-            Text {
+        ThreadEntry {
+            Layout.fillWidth: true
+            visible: conversation.item !== null
+            entry: root.descriptionEntry(conversation.item)
+        }
+
+        Text {
+            Layout.fillWidth: true
+            Layout.leftMargin: 44
+            visible: !conversation.dispatchError && (!conversation.thread || conversation.thread.status === "loading")
+            text: conversation.thread && conversation.thread.entries.length > 0 ? "Updating conversation…" : "Fetching comments and reviews…"
+            color: root.theme.textMuted
+            font.family: root.textFont
+            font.pixelSize: 11
+        }
+
+        Repeater {
+            model: conversation.thread ? conversation.thread.entries : []
+            ThreadEntry {
                 Layout.fillWidth: true
-                visible: !!(threadEntry.entry && (threadEntry.entry.body || "").length === 0)
-                text: "(no body)"
-                color: root.theme.textMuted
-                font.family: root.textFont
-                font.pixelSize: 10
-                font.italic: true
+                entry: modelData
             }
+        }
+
+        Text {
+            Layout.fillWidth: true
+            Layout.leftMargin: 44
+            visible: conversation.thread !== null && conversation.thread.status === "ready" && conversation.thread.entries.length === 0
+            text: "No comments yet."
+            color: root.theme.textMuted
+            font.family: root.textFont
+            font.pixelSize: 11
         }
     }
 
@@ -1216,7 +1350,7 @@ ShellRoot {
         if (!item) {
             return false
         }
-        if (root.threadRequestedId === item.id && threadAdapter.itemId === item.id && threadAdapter.status === "loading") {
+        if ((root.threadRequestedId === item.id && threadAdapter.itemId !== item.id) || (threadAdapter.itemId === item.id && threadAdapter.status === "loading")) {
             return true
         }
         return false
@@ -1253,19 +1387,33 @@ ShellRoot {
             return
         }
         root.threadRequestedId = item.id
-        runRepobar([
-            "thread", "fetch", item.id,
-            "--repo", item.repoFullName,
-            "--number", String(item.number),
-            "--kind", item.kind
-        ])
+        root.threadDispatchError = ""
+        root.threadDispatchErrorId = item.id
+        var request = threadFetchFactory.createObject(root, {
+            itemId: item.id,
+            command: [root.repobarBin, "thread", "fetch", item.id,
+                "--repo", item.repoFullName, "--number", String(item.number),
+                "--kind", item.kind, "--config", root.configPath]
+        })
+        request.running = true
     }
 
     function loadSelectedThread() {
         root.loadThread(root.selectedTriageItem())
     }
 
+    function descriptionEntry(item) {
+        if (!item) { return null }
+        return {
+            kind: "description", author: item.author,
+            authorAvatarUrl: item.authorAvatarUrl || "",
+            body: item.bodyFull || "", createdText: item.updatedText ? "updated " + item.updatedText : "",
+            inReplyToId: 0
+        }
+    }
+
     function threadEntryLabel(entry) {
+        if (entry.kind === "description") { return "opened the conversation" }
         if (entry.kind === "review") {
             var state = (entry.state || "").toUpperCase()
             if (state === "APPROVED") { return "approved" }
@@ -1276,7 +1424,7 @@ ShellRoot {
         }
         if (entry.kind === "review-comment") {
             var place = entry.path || "review comment"
-            return entry.line ? (place + ":" + entry.line) : place
+            return (entry.inReplyToId > 0 ? "↳ reply · " : "") + (entry.line ? (place + ":" + entry.line) : place)
         }
         return "commented"
     }
@@ -1304,6 +1452,30 @@ ShellRoot {
 
     function showTriageMode() {
         runRepobar(["ui", "mode", "triage"])
+    }
+
+    Component {
+        id: threadFetchFactory
+        Process {
+            id: threadRequest
+            property string itemId: ""
+            stdout: StdioCollector {}
+            stderr: StdioCollector { id: threadRequestError }
+            onExited: (exitCode, exitStatus) => {
+                if (root.threadRequestedId === itemId) {
+                    // Every exited dispatch is no longer pending, even if superseded.
+                    root.threadRequestedId = ""
+                    if (exitCode === 0 && root.conversationKey === itemId && threadAdapter.itemId !== itemId) {
+                        conversationLoad.restart()
+                    }
+                }
+                if (exitCode !== 0 && root.conversationKey === itemId) {
+                    root.threadDispatchErrorId = itemId
+                    root.threadDispatchError = threadRequestError.text.trim() || "Conversation dispatch failed. Use refresh to retry."
+                }
+                threadRequest.destroy()
+            }
+        }
     }
 
     Process {
@@ -1385,6 +1557,14 @@ ShellRoot {
             id: threadAdapter
             property string status: "idle"
             property string itemId: ""
+            onItemIdChanged: {
+                // A delayed dispatch can replace a conversation we already had ready.
+                // Reconcile after parsing, but do not duplicate a pending selected request.
+                if (root.conversationKey && itemId !== root.conversationKey
+                        && root.threadRequestedId !== root.conversationKey) {
+                    conversationLoad.restart()
+                }
+            }
             property string repoFullName: ""
             property string number: ""
             property string kind: ""
@@ -1560,7 +1740,7 @@ ShellRoot {
             Rectangle {
                 id: modalFrame
                 anchors.centerIn: parent
-                width: Math.min(960, Math.max(320, panel.width - 36))
+                width: Math.min(root.triageMode() || root.selectedRepository !== null ? 1280 : 960, Math.max(320, panel.width - 36))
                 height: Math.min(panel.height - 16, Math.max(420, panel.height - (panel.verticalMargin * 2)))
                 color: root.theme.bg
                 border.color: root.theme.good
@@ -1972,8 +2152,9 @@ ShellRoot {
                 }
 
                 Rectangle {
+                    id: overviewReader
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 220
+                    Layout.fillHeight: true
                     visible: !root.triageMode() && root.selectedRepository !== null
                     color: root.theme.surfaceDeep
                     border.color: root.theme.border
@@ -1982,203 +2163,136 @@ ShellRoot {
 
                     ColumnLayout {
                         anchors.fill: parent
-                        anchors.margins: 10
-                        spacing: 8
+                        anchors.margins: 12
+                        spacing: 12
 
                         RowLayout {
                             Layout.fillWidth: true
-                            spacing: 8
-
                             Text {
                                 Layout.fillWidth: true
-                                text: root.selectedRepository ? (root.selectedRepository.fullName + "  " + root.workLabel(root.selectedRepository)) : ""
+                                Layout.minimumWidth: 0
+                                text: root.selectedRepository ? root.selectedRepository.fullName + "  ·  " + root.overviewItems.length + " work items" : ""
                                 color: root.theme.text
                                 font.family: root.textFont
-                                font.pixelSize: 13
+                                font.pixelSize: 14
                                 font.bold: true
                                 elide: Text.ElideRight
                             }
-
                             Button {
-                                Layout.preferredHeight: 28
-                                Layout.preferredWidth: 72
-                                text: "Open"
-                                enabled: root.selectedRepository !== null
-                                onClicked: root.runRepobar(["open", root.repoUrl(root.selectedRepository)])
-                            }
-                            Button {
-                                Layout.preferredHeight: 28
-                                Layout.preferredWidth: 72
-                                text: "Close"
+                                text: "Back to repositories"
                                 onClicked: root.selectedRepository = null
                             }
                         }
 
-                        Flickable {
+                        RowLayout {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
-                            contentWidth: width
-                            contentHeight: readerColumn.implicitHeight
-                            clip: true
+                            spacing: 12
 
-                            ColumnLayout {
-                                id: readerColumn
-                                width: parent.width
-                                spacing: 8
+                            ListView {
+                                id: overviewWorkList
+                                Layout.preferredWidth: Math.min(300, overviewReader.width * 0.3)
+                                Layout.maximumWidth: 300
+                                Layout.minimumWidth: 150
+                                Layout.fillWidth: false
+                                Layout.fillHeight: true
+                                model: root.overviewItems
+                                clip: true
+                                spacing: 6
+                                ScrollBar.vertical: ScrollBar {}
 
-                                Text {
-                                    Layout.fillWidth: true
-                                    visible: root.selectedRepository !== null && root.workItems(root.selectedRepository) === 0
-                                    text: "No open issues or pull requests in the cached snapshot."
-                                    color: root.theme.textMuted
-                                    font.family: root.textFont
-                                    font.pixelSize: 11
-                                    elide: Text.ElideRight
-                                }
+                                delegate: Rectangle {
+                                    required property var modelData
+                                    required property int index
+                                    width: overviewWorkList.width
+                                    height: workItemText.implicitHeight + 24
+                                    radius: 4
+                                    color: root.overviewIndex === index ? root.theme.surfaceSelect : root.theme.surfaceAlt
+                                    border.color: root.overviewIndex === index ? root.theme.info : root.theme.border
+                                    border.width: 1
+                                    Accessible.role: Accessible.Button
+                                    Accessible.name: "Read " + modelData.kind + " " + modelData.number + " " + modelData.title
 
-                                Text {
-                                    Layout.fillWidth: true
-                                    visible: root.selectedRepository && root.selectedRepository.pulls && root.selectedRepository.pulls.length > 0
-                                    text: "Pull requests"
-                                    color: root.theme.info
-                                    font.family: root.textFont
-                                    font.pixelSize: 11
-                                    font.bold: true
-                                }
-
-                                Repeater {
-                                    model: (root.selectedRepository && root.selectedRepository.pulls) ? root.firstItems(root.selectedRepository.pulls, 3) : []
-
-                                    ColumnLayout {
-                                        width: readerColumn.width
-                                        spacing: 3
-
-                                        RowLayout {
-                                            width: parent.width
-                                            spacing: 8
-
-                                            Text {
-                                                Layout.fillWidth: true
-                                                text: "#" + modelData.number + " " + (modelData.draft ? "[draft] " : "") + modelData.title
-                                                color: root.theme.text
-                                                font.family: root.textFont
-                                                font.pixelSize: 12
-                                                font.bold: true
-                                                elide: Text.ElideRight
-                                            }
-
-                                            Text {
-                                                text: "@" + modelData.author + "  " + modelData.updatedText
-                                                color: root.theme.textMuted
-                                                font.family: root.textFont
-                                                font.pixelSize: 10
-                                                Layout.preferredWidth: 150
-                                                elide: Text.ElideRight
-                                            }
-
-                                            Button {
-                                                Layout.preferredHeight: 24
-                                                Layout.preferredWidth: 56
-                                                text: "Open"
-                                                enabled: (modelData.url || "").length > 0
-                                                onClicked: root.runRepobar(["open", modelData.url])
-                                            }
-                                        }
-
-                                        Text {
-                                            width: parent.width
-                                            text: modelData.body || "No description."
-                                            color: root.theme.accent
-                                            font.family: root.textFont
-                                            font.pixelSize: 10
-                                            wrapMode: Text.Wrap
-                                            maximumLineCount: 2
-                                            elide: Text.ElideRight
-                                        }
-
-                                        Rectangle {
-                                            width: parent.width
-                                            height: 1
-                                            color: root.theme.border
-                                        }
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: root.overviewIndex = parent.index
                                     }
-                                }
-
-                                Text {
-                                    Layout.fillWidth: true
-                                    visible: root.selectedRepository && root.selectedRepository.issues && root.selectedRepository.issues.length > 0
-                                    text: "Issues"
-                                    color: root.theme.info
-                                    font.family: root.textFont
-                                    font.pixelSize: 11
-                                    font.bold: true
-                                }
-
-                                Repeater {
-                                    model: (root.selectedRepository && root.selectedRepository.issues) ? root.firstItems(root.selectedRepository.issues, 3) : []
-
                                     ColumnLayout {
-                                        width: readerColumn.width
-                                        spacing: 3
-
-                                        RowLayout {
-                                            width: parent.width
-                                            spacing: 8
-
-                                            Text {
-                                                Layout.fillWidth: true
-                                                text: "#" + modelData.number + " " + modelData.title
-                                                color: root.theme.text
-                                                font.family: root.textFont
-                                                font.pixelSize: 12
-                                                font.bold: true
-                                                elide: Text.ElideRight
-                                            }
-
-                                            Text {
-                                                text: "@" + modelData.author + "  " + modelData.updatedText
-                                                color: root.theme.textMuted
-                                                font.family: root.textFont
-                                                font.pixelSize: 10
-                                                Layout.preferredWidth: 150
-                                                elide: Text.ElideRight
-                                            }
-
-                                            Button {
-                                                Layout.preferredHeight: 24
-                                                Layout.preferredWidth: 56
-                                                text: "Open"
-                                                enabled: (modelData.url || "").length > 0
-                                                onClicked: root.runRepobar(["open", modelData.url])
-                                            }
-                                        }
-
+                                        id: workItemText
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.top: parent.top
+                                        anchors.margins: 12
+                                        spacing: 5
                                         Text {
-                                            width: parent.width
-                                            text: modelData.body || "No description."
-                                            color: root.theme.accent
+                                            text: (modelData.kind === "pr" ? "PULL REQUEST" : "ISSUE") + "  #" + modelData.number
+                                            color: modelData.kind === "pr" ? root.theme.goodSoft : root.theme.info
                                             font.family: root.textFont
-                                            font.pixelSize: 10
-                                            wrapMode: Text.Wrap
-                                            maximumLineCount: 2
-                                            elide: Text.ElideRight
+                                            font.pixelSize: 9
+                                            font.bold: true
                                         }
-
                                         Text {
-                                            width: parent.width
-                                            visible: modelData.labels && modelData.labels.length > 0
-                                            text: "Labels: " + modelData.labels.join(", ")
+                                            Layout.fillWidth: true
+                                            Layout.minimumWidth: 0
+                                            text: modelData.title
+                                            color: root.theme.text
+                                            font.family: root.textFont
+                                            font.pixelSize: 12
+                                            wrapMode: Text.Wrap
+                                        }
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: "@" + modelData.author + "  ·  " + modelData.updatedText
                                             color: root.theme.textMuted
                                             font.family: root.textFont
                                             font.pixelSize: 10
                                             elide: Text.ElideRight
                                         }
+                                    }
+                                }
+                            }
 
-                                        Rectangle {
-                                            width: parent.width
-                                            height: 1
-                                            color: root.theme.border
-                                        }
+                            Rectangle {
+                                Layout.preferredWidth: 1
+                                Layout.fillHeight: true
+                                color: root.theme.border
+                            }
+
+                            Flickable {
+                                id: overviewConversationScroll
+                                property string selectionKey: root.conversationKey
+                                onSelectionKeyChanged: contentY = 0
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                Layout.minimumWidth: 180
+                                contentWidth: width
+                                contentHeight: overviewConversationColumn.implicitHeight + 24
+                                boundsBehavior: Flickable.StopAtBounds
+                                clip: true
+                                ScrollBar.vertical: ScrollBar {}
+
+                                ColumnLayout {
+                                    id: overviewConversationColumn
+                                    width: overviewConversationScroll.width - 24
+                                    x: 12
+                                    spacing: 14
+
+                                    Text {
+                                        Layout.fillWidth: true
+                                        Layout.minimumWidth: 0
+                                        text: root.conversationItem ? "#" + root.conversationItem.number + " " + root.conversationItem.title : "No work items in this snapshot."
+                                        textFormat: Text.PlainText
+                                        color: root.theme.text
+                                        font.family: root.textFont
+                                        font.pixelSize: 18
+                                        font.bold: true
+                                        wrapMode: Text.Wrap
+                                    }
+                                    ConversationView {
+                                        Layout.fillWidth: true
+                                        item: root.conversationItem
+                                        visible: item !== null
                                     }
                                 }
                             }
@@ -2558,6 +2672,8 @@ ShellRoot {
 
                                 Flickable {
                                     id: triageReaderScroll
+                                    property string selectionKey: root.conversationKey
+                                    onSelectionKeyChanged: contentY = 0
                                     anchors.fill: parent
                                     contentWidth: width
                                     contentHeight: triageReaderColumn.implicitHeight + 16
@@ -2679,6 +2795,31 @@ ShellRoot {
                                             }
                                         }
 
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 10
+                                            Layout.rightMargin: 10
+                                            spacing: 6
+                                            TriageFilterChip {
+                                                label: "Conversation"
+                                                active: !root.readerContext
+                                                onPicked: root.readerContext = false
+                                            }
+                                            TriageFilterChip {
+                                                label: "Context"
+                                                active: root.readerContext
+                                                onPicked: root.readerContext = true
+                                            }
+                                        }
+
+                                        ConversationView {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 12
+                                            Layout.rightMargin: 18
+                                            item: root.selectedTriageItem()
+                                            visible: !root.readerContext
+                                        }
+
                                         // Signals: the full, explained set — not the
                                         // three the row can fit.
                                         Flow {
@@ -2686,7 +2827,7 @@ ShellRoot {
                                             Layout.leftMargin: 10
                                             Layout.rightMargin: 10
                                             spacing: 6
-                                            visible: root.selectedTriageItem() !== null && root.selectedTriageItem().signals.length > 0
+                                            visible: root.readerContext && root.selectedTriageItem() !== null && root.selectedTriageItem().signals.length > 0
 
                                             Repeater {
                                                 model: root.selectedTriageItem() ? root.selectedTriageItem().signals : []
@@ -2715,12 +2856,12 @@ ShellRoot {
                                             Layout.fillWidth: true
                                             Layout.leftMargin: 10
                                             Layout.rightMargin: 10
+                                            visible: root.readerContext && root.selectedTriageItem() !== null
                                             implicitHeight: repoFacts.implicitHeight + 16
                                             radius: 3
                                             color: root.theme.bg
                                             border.width: 1
                                             border.color: root.theme.border
-                                            visible: root.selectedTriageItem() !== null
 
                                             GridLayout {
                                                 id: repoFacts
@@ -2858,7 +2999,7 @@ ShellRoot {
                                             Layout.leftMargin: 10
                                             Layout.rightMargin: 10
                                             spacing: 5
-                                            visible: root.selectedTriageItem() !== null && root.selectedTriageItem().labelChips.length > 0
+                                            visible: root.readerContext && root.selectedTriageItem() !== null && root.selectedTriageItem().labelChips.length > 0
 
                                             Repeater {
                                                 model: root.selectedTriageItem() ? root.selectedTriageItem().labelChips : []
@@ -2878,107 +3019,13 @@ ShellRoot {
                                             color: root.theme.border
                                         }
 
-                                        Text {
-                                            Layout.fillWidth: true
-                                            Layout.leftMargin: 10
-                                            Layout.rightMargin: 10
-                                            text: root.selectedTriageItem() ? (root.selectedTriageItem().bodyFull || "No description.") : ""
-                                            color: root.theme.accent
-                                            font.family: root.textFont
-                                            font.pixelSize: 11
-                                            wrapMode: Text.Wrap
-                                        }
-
-                                        // Thread: the full conversation, fetched on
-                                        // demand into thread.json. Never blocks —
-                                        // this reads whatever is cached.
-                                        Rectangle {
-                                            Layout.fillWidth: true
-                                            Layout.leftMargin: 10
-                                            Layout.rightMargin: 10
-                                            implicitHeight: threadBlock.implicitHeight + 16
-                                            radius: 3
-                                            color: root.theme.bg
-                                            border.width: 1
-                                            border.color: root.theme.border
-                                            visible: root.selectedTriageItem() !== null
-
-                                            ColumnLayout {
-                                                id: threadBlock
-                                                anchors.fill: parent
-                                                anchors.margins: 8
-                                                spacing: 6
-
-                                                RowLayout {
-                                                    Layout.fillWidth: true
-                                                    spacing: 6
-
-                                                    Text {
-                                                        text: "Thread"
-                                                        color: root.theme.text
-                                                        font.family: root.textFont
-                                                        font.pixelSize: 11
-                                                        font.bold: true
-                                                    }
-
-                                                    Text {
-                                                        Layout.fillWidth: true
-                                                        text: root.threadStatusText(root.selectedTriageItem())
-                                                        color: root.threadForItem(root.selectedTriageItem()) && root.threadForItem(root.selectedTriageItem()).status === "error"
-                                                            ? root.theme.bad
-                                                            : root.theme.textMuted
-                                                        font.family: root.textFont
-                                                        font.pixelSize: 9
-                                                        elide: Text.ElideRight
-                                                    }
-
-                                                    Button {
-                                                        Layout.preferredHeight: 24
-                                                        text: root.threadCount(root.selectedTriageItem()) > 0 ? "Reload" : "Load thread"
-                                                        enabled: root.selectedTriageItem() !== null && !root.threadLoading(root.selectedTriageItem())
-                                                        onClicked: root.loadSelectedThread()
-                                                    }
-                                                }
-
-                                                Text {
-                                                    Layout.fillWidth: true
-                                                    visible: root.threadForItem(root.selectedTriageItem()) === null
-                                                    text: "Press t to load the whole conversation — comments, reviews and inline review notes."
-                                                    color: root.theme.textMuted
-                                                    font.family: root.textFont
-                                                    font.pixelSize: 9
-                                                    wrapMode: Text.Wrap
-                                                }
-
-                                                Text {
-                                                    Layout.fillWidth: true
-                                                    visible: root.threadLoading(root.selectedTriageItem())
-                                                    text: "Loading…"
-                                                    color: root.theme.info
-                                                    font.family: root.textFont
-                                                    font.pixelSize: 10
-                                                }
-
-                                                Repeater {
-                                                    model: root.threadForItem(root.selectedTriageItem())
-                                                        ? root.threadForItem(root.selectedTriageItem()).entries
-                                                        : []
-
-                                                    ThreadEntry {
-                                                        Layout.fillWidth: true
-                                                        entry: modelData
-                                                    }
-                                                }
-                                            }
-                                        }
-
                                         RowLayout {
                                             Layout.fillWidth: true
                                             Layout.margins: 10
                                             spacing: 8
 
                                             Button {
-                                                text: "Open item"
+                                                text: "Open on GitHub"
                                                 enabled: root.selectedTriageItem() !== null
                                                 onClicked: root.openTriageItem(root.selectedTriageItem())
                                             }
@@ -3016,7 +3063,7 @@ ShellRoot {
                     Layout.fillHeight: true
                     clip: true
                     spacing: 8
-                    visible: !root.triageMode()
+                    visible: !root.triageMode() && root.selectedRepository === null
                     model: repositories
 
                     MouseArea {
