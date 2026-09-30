@@ -13,7 +13,7 @@ RepoBar Linux is a SolverForge Linux implementation inspired by [steipete](https
 
 ## Goal
 
-Make GitHub.com and local Forgejo repository pressure visible without opening a browser:
+Make GitHub.com repository pressure visible without opening a browser:
 
 - which repos have open PRs or issues
 - which repos have failing, pending, or unknown CI
@@ -26,9 +26,7 @@ Make GitHub.com and local Forgejo repository pressure visible without opening a 
 
 ## Current Product Decisions
 
-- Use the existing `gh` token, `REPOBAR_GITHUB_TOKEN`, or `GITHUB_TOKEN` for GitHub.com auth.
-- Support the local Forgejo instance at `http://vigilance:3002` through `/api/v1`, with no token required for public repositories.
-- Support Forgejo private reads through `REPOBAR_FORGEJO_TOKEN`, `FORGEJO_TOKEN`, or `GITEA_TOKEN`.
+- Use the existing `gh` token, `REPOBAR_GITHUB_TOKEN`, or `GITHUB_TOKEN` for GitHub.com auth. GitHub.com is the only provider.
 - Use standard-library Ruby and JSON cache/state.
 - Do not implement GitHub App OAuth in this repo.
 - Use RepoBar-owned JSON API cache files and import Discrawl-style archive snapshots into SQLite through the `sqlite3` CLI.
@@ -36,10 +34,9 @@ Make GitHub.com and local Forgejo repository pressure visible without opening a 
 - Use one human UI: QuickShell.
 - Use Waybar only as a compact launcher/render surface.
 - Keep hosted API calls out of QML.
-- Keep search, refresh, provider switching, repo visibility actions, and pinned repo moves daemon-owned.
+- Keep search, refresh, repo visibility actions, and pinned repo moves daemon-owned.
 - Keep pinned repositories uncapped by `repoList.displayLimit`; the limit applies only to unpinned extras after all pinned repositories are selected in configured order.
-- Keep provider switching cache-first: restore cached provider snapshots immediately when available, and never let a late refresh from an older provider/config identity overwrite the active provider view.
-- Keep same-provider stale refreshes from overwriting newer pinned/hidden state in provider caches.
+- Keep late refreshes from an older config identity from overwriting newer pinned/hidden state.
 - Coalesce daemon-triggered refresh requests so rapid UI actions do not spawn unbounded refresh work.
 - Do not let scheduled timer refresh ticks queue pending action refreshes while a refresh is already running.
 
@@ -49,7 +46,6 @@ Make GitHub.com and local Forgejo repository pressure visible without opening a 
 - Config: `~/.repobar/config.json`
 - State directory: `~/.local/state/repobar/`
 - Snapshot: `snapshot.json`
-- Provider snapshots: `providers/github.json`, `providers/forgejo.json`
 - UI state: `ui.json`
 - Search state: `search.json`
 - Reload event: `state-event.json`
@@ -62,7 +58,7 @@ The frontend reads files and sends mutations through CLI commands. It does not f
 
 The QuickShell panel should render:
 
-- provider/account/work summary
+- account/work summary
 - optional account activity heatmap
 - search input and async result list
 - issue/PR reader panel for cached previews
@@ -73,16 +69,14 @@ The QuickShell panel is a modal overlay: it must open centered vertically and ho
 
 ## Success Criteria
 
-- `repobar refresh` writes a usable snapshot from live GitHub.com or Forgejo data.
+- `repobar refresh` writes a usable snapshot from live GitHub.com data.
 - `repobar waybar render` returns valid Waybar JSON from cached state.
-- The QuickShell panel renders repo rows, account heatmap, search state, issue/PR previews, pinned state, and status summaries from watched JSON files.
+- The QuickShell panel renders repo rows, account heatmap, search state, issue/PR previews, pinned state, status summaries, and the triage inbox/reader from watched JSON files.
 - Local checkout state is matched to hosted repositories without mutating local repos.
 - Pin/unpin/hide/show updates are visible immediately through projected cached state, then hydrated by daemon refresh.
 - Pin move updates are visible immediately through projected cached state and preserve the configured pinned order.
 - Pinned repositories are not capped by `repoList.displayLimit`.
-- Provider switching restores cached provider snapshots immediately when available.
-- Provider switching remains instant from cache even when a previous provider refresh is still in flight.
-- Same-provider stale refreshes preserve newer pinned ordering in provider caches.
+- Late refreshes preserve newer pinned ordering and newer hidden state.
 - Repeated refresh-triggering actions produce at most one active refresh and one pending daemon follow-up.
 - Timer refresh ticks do not create immediate pending follow-ups while a refresh is already active.
 - The SolverForge Waybar module opens the panel and refreshes on demand.

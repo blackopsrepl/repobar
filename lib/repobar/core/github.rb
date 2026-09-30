@@ -11,21 +11,15 @@ module RepoBar
     module GitHub
       module_function
 
+      API_HOST = "https://api.github.com"
+      GRAPHQL_HOST = "https://api.github.com/graphql"
+      API_VERSION = "2022-11-28"
+      USER_AGENT = "repobar-linux"
+
       Response = Struct.new(:data, :headers, :status, keyword_init: true)
 
       def auth_status(config)
         token = access_token(config)
-        if token.to_s.empty? && forgejo?(config)
-          response = request(config, "/version", token: nil)
-          return {
-            authenticated: true,
-            source: "public",
-            login: "forgejo:public",
-            provider: "forgejo",
-            version: response.data[:version] || response.data["version"],
-            rateLimit: rate_limit_from_headers(response.headers)
-          }
-        end
         return { authenticated: false, source: config.dig(:github, :authSource), login: nil, error: "No GitHub token available." } if token.to_s.empty?
 
         response = request(config, "/user", token: token)
@@ -34,7 +28,6 @@ module RepoBar
           authenticated: true,
           source: config.dig(:github, :authSource),
           login: login,
-          provider: provider(config),
           rateLimit: rate_limit_from_headers(response.headers)
         }
       rescue StandardError => e
@@ -43,7 +36,7 @@ module RepoBar
 
       def fetch_repositories(config)
         token = access_token(config)
-        raise "No GitHub token available. Run gh auth login or set REPOBAR_GITHUB_TOKEN." if token.to_s.empty? && github?(config)
+        raise "No GitHub token available. Run gh auth login or set REPOBAR_GITHUB_TOKEN." if token.to_s.empty?
 
         limit = config.dig(:repoList, :displayLimit).to_i
         pinned = Array(config.dig(:repoList, :pinnedRepositories))
@@ -69,33 +62,23 @@ module RepoBar
       end
 
       def user_repositories(config, token, limit)
-        path = if forgejo?(config)
-                 "/repos/search?limit=#{[[limit, 50].min, 1].max}"
-               else
-                 "/user/repos?per_page=#{[[limit, 100].min, 1].max}&sort=pushed&direction=desc"
-               end
+        path = "/user/repos?per_page=#{[[limit, 100].min, 1].max}&sort=pushed&direction=desc"
         response = request(config, path, token: token)
-        items = forgejo?(config) ? response.data[:data] || response.data["data"] : response.data
-        Array(items).map { |item| map_repo_item(item, response.headers, config) }
+        Array(response.data).map { |item| map_repo_item(item, response.headers) }
       end
 
       def search_repositories(config, token, query, limit)
         encoded = URI.encode_www_form_component(query.to_s)
-        path = if forgejo?(config)
-                 "/repos/search?q=#{encoded}&limit=#{limit}"
-               else
-                 "/search/repositories?q=#{encoded}&per_page=#{limit}"
-               end
-        response = request(config, path, token: token)
-        items = forgejo?(config) ? response.data[:data] || response.data["data"] : response.data[:items] || response.data["items"]
-        Array(items).first(limit).map { |item| map_repo_item(item, response.headers, config) }
+        response = request(config, "/search/repositories?q=#{encoded}&per_page=#{limit}", token: token)
+        items = response.data[:items] || response.data["items"]
+        Array(items).first(limit).map { |item| map_repo_item(item, response.headers) }
       rescue StandardError
         []
       end
 
       def repository(config, token, full_name)
         response = request(config, "/repos/#{full_name}", token: token)
-        map_repo_item(response.data, response.headers, config)
+        map_repo_item(response.data, response.headers)
       rescue StandardError => e
         # A missing repository is a confirmed removal. Other failures must reach the
         # refresh transaction so it retains the last confirmed repository snapshot.
@@ -107,8 +90,8 @@ module RepoBar
       def hydrate_repository(config, token, repo)
         owner = repo[:owner]
         name = repo[:name]
-        issue_count = open_issue_count(config, token, "#{owner}/#{name}", repo)
-        pull_count = open_pull_count(config, token, "#{owner}/#{name}", repo)
+        issue_count = open_issue_count(config, token, "#{owner}/#{name}")
+        pull_count = open_pull_count(config, token, "#{owner}/#{name}")
         issue_items = issue_count.positive? ? issues(config, token, owner, name, 20) : []
         pull_items = pull_count.positive? ? pulls(config, token, owner, name, 20) : []
         release = latest_release(config, token, owner, name)
@@ -139,50 +122,44 @@ module RepoBar
         0
       end
 
-      def open_issue_count(config, token, full_name, repo = nil)
-        return repo.dig(:stats, :openIssues).to_i if forgejo?(config) && repo
-        return repository(config, token, full_name).dig(:stats, :openIssues).to_i if forgejo?(config)
-
+      def open_issue_count(config, token, full_name)
         search_count(config, token, "repo:#{full_name} type:issue state:open")
       end
 
-      def open_pull_count(config, token, full_name, repo = nil)
-        return repo.dig(:stats, :openPulls).to_i if forgejo?(config) && repo
-        return repository(config, token, full_name).dig(:stats, :openPulls).to_i if forgejo?(config)
-
+      def open_pull_count(config, token, full_name)
         search_count(config, token, "repo:#{full_name} type:pr state:open")
       end
 
       def issues(config, token, owner, name, limit)
-        response = request(config, "/repos/#{owner}/#{name}/issues?state=open&#{limit_param(config)}=#{limit}", token: token)
+        response = request(config, "/repos/#{owner}/#{name}/issues?state=open&per_page=#{limit}", token: token)
         Array(response.data).reject { |item| item[:pull_request] || item["pull_request"] }.first(limit).map { |item| map_issue_item(item) }
       rescue StandardError
         []
       end
 
       def pulls(config, token, owner, name, limit)
-        response = request(config, "/repos/#{owner}/#{name}/pulls?state=open&#{limit_param(config)}=#{limit}", token: token)
+        response = request(config, "/repos/#{owner}/#{name}/pulls?state=open&per_page=#{limit}", token: token)
         Array(response.data).first(limit).map { |item| map_pull_item(item) }
       rescue StandardError
         []
       end
 
       def releases(config, token, owner, name, limit)
-        response = request(config, "/repos/#{owner}/#{name}/releases?#{limit_param(config)}=#{limit}", token: token)
+        response = request(config, "/repos/#{owner}/#{name}/releases?per_page=#{limit}", token: token)
         Array(response.data).first(limit).map { |item| map_release_item(item) }
       rescue StandardError
         []
       end
 
       def workflow_runs(config, token, owner, name, limit)
-        response = request(config, "/repos/#{owner}/#{name}/actions/runs?#{limit_param(config)}=#{limit}", token: token)
+        response = request(config, "/repos/#{owner}/#{name}/actions/runs?per_page=#{limit}", token: token)
         Array(response.data[:workflow_runs] || response.data["workflow_runs"]).first(limit).map { |item| map_workflow_run(item) }
       rescue StandardError
         []
       end
 
       def tags(config, token, owner, name, limit)
-        response = request(config, "/repos/#{owner}/#{name}/tags?#{limit_param(config)}=#{limit}", token: token)
+        response = request(config, "/repos/#{owner}/#{name}/tags?per_page=#{limit}", token: token)
         Array(response.data).first(limit).map do |item|
           {
             name: item[:name] || item["name"],
@@ -195,13 +172,13 @@ module RepoBar
       end
 
       def branches(config, token, owner, name, limit)
-        response = request(config, "/repos/#{owner}/#{name}/branches?#{limit_param(config)}=#{limit}", token: token)
+        response = request(config, "/repos/#{owner}/#{name}/branches?per_page=#{limit}", token: token)
         Array(response.data).first(limit).map do |item|
           {
             name: item[:name] || item["name"],
             sha: item.dig(:commit, :sha) || item.dig("commit", "sha"),
             protected: !!(item[:protected] || item["protected"]),
-            url: "#{config.dig(:github, :host).to_s.sub(%r{/*\z}, '')}/#{owner}/#{name}/src/branch/#{URI.encode_www_form_component(item[:name] || item["name"])}"
+            url: "#{config.dig(:github, :host).to_s.sub(%r{/*\z}, '')}/#{owner}/#{name}/src/branch/#{URI.encode_www_form_component(item[:name] || item['name'])}"
           }
         end
       rescue StandardError
@@ -209,7 +186,7 @@ module RepoBar
       end
 
       def contributors(config, token, owner, name, limit)
-        response = request(config, "/repos/#{owner}/#{name}/contributors?#{limit_param(config)}=#{limit}", token: token)
+        response = request(config, "/repos/#{owner}/#{name}/contributors?per_page=#{limit}", token: token)
         Array(response.data).first(limit).map do |item|
           {
             login: item[:login] || item["login"],
@@ -222,7 +199,7 @@ module RepoBar
       end
 
       def discussions(config, token, owner, name, limit)
-        return [] if forgejo?(config) || token.to_s.empty?
+        return [] if token.to_s.empty?
 
         query = <<~GRAPHQL
           query($owner: String!, $name: String!, $limit: Int!) {
@@ -256,7 +233,7 @@ module RepoBar
       end
 
       def commits(config, token, owner, name, limit)
-        response = request(config, "/repos/#{owner}/#{name}/commits?#{limit_param(config)}=#{limit}", token: token)
+        response = request(config, "/repos/#{owner}/#{name}/commits?per_page=#{limit}", token: token)
         Array(response.data).first(limit).map do |item|
           commit = item[:commit] || item["commit"] || {}
           author = commit[:author] || commit["author"] || {}
@@ -275,37 +252,23 @@ module RepoBar
       def global_activity(config, token, login, limit)
         return [] if login.to_s.empty?
 
-        path = forgejo?(config) ? "/users/#{login}/activities/feeds?limit=#{limit}" : "/users/#{login}/events/public?per_page=#{limit}"
-        response = request(config, path, token: token)
+        response = request(config, "/users/#{login}/events/public?per_page=#{limit}", token: token)
         Array(response.data).first(limit).map do |event|
-          if forgejo?(config)
-            repo = event.dig(:repo, :full_name) || event.dig("repo", "full_name")
-            {
-              type: event[:op_type] || event["op_type"],
-              actor: event.dig(:act_user, :login) || event.dig("act_user", "login") || login,
-              repo: repo,
-              title: forgejo_activity_title(event),
-              date: event[:created] || event["created"],
-              url: repo ? "#{config.dig(:github, :host).to_s.sub(%r{/*\z}, '')}/#{repo}" : config.dig(:github, :host)
-            }
-          else
-            repo = event.dig(:repo, :name) || event.dig("repo", "name")
-            {
-              type: event[:type] || event["type"],
-              actor: event.dig(:actor, :login) || event.dig("actor", "login") || login,
-              repo: repo,
-              title: activity_title(event),
-              date: event[:created_at] || event["created_at"],
-              url: repo ? "https://github.com/#{repo}" : "https://github.com/#{login}"
-            }
-          end
+          repo = event.dig(:repo, :name) || event.dig("repo", "name")
+          {
+            type: event[:type] || event["type"],
+            actor: event.dig(:actor, :login) || event.dig("actor", "login") || login,
+            repo: repo,
+            title: activity_title(event),
+            date: event[:created_at] || event["created_at"],
+            url: repo ? "#{config.dig(:github, :host).to_s.sub(%r{/*\z}, '')}/#{repo}" : config.dig(:github, :host)
+          }
         end
       rescue StandardError
         []
       end
 
       def account_heatmap(config, token, login)
-        return forgejo_account_heatmap(config, token, login) if forgejo?(config)
         return unavailable_heatmap if token.to_s.empty? || login.to_s.empty?
 
         start_date = Date.today - 365
@@ -352,66 +315,8 @@ module RepoBar
         unavailable_heatmap
       end
 
-      def forgejo_account_heatmap(config, token, login)
-        heatmap_login = forgejo_heatmap_login(login)
-        return unavailable_heatmap if heatmap_login.empty?
-
-        start_date = Date.today - 365
-        end_date = Date.today
-        response = request(config, "/users/#{URI.encode_www_form_component(heatmap_login)}/heatmap", token: token)
-        counts = Hash.new(0)
-        Array(response.data).each do |item|
-          date = forgejo_heatmap_date(item)
-          next unless date && date >= start_date && date <= end_date
-
-          counts[date.iso8601] += (item[:contributions] || item["contributions"] || item[:count] || item["count"]).to_i
-        end
-        weeks = calendar_weeks_from_counts(counts, start_date, end_date)
-        cells = weeks.flat_map { |week| week[:cells] }
-        max = cells.map { |cell| cell[:count].to_i }.max.to_i
-        { available: true, total: cells.sum { |cell| cell[:count].to_i }, max: max, cells: cells, weeks: weeks, login: heatmap_login }
-      rescue StandardError
-        unavailable_heatmap
-      end
-
-      def forgejo_heatmap_login(login)
-        clean = login.to_s.strip
-        return clean unless clean.empty? || clean == "forgejo:public"
-
-        configured = ENV["REPOBAR_FORGEJO_LOGIN"].to_s.strip
-        return configured unless configured.empty?
-
-        ENV["USER"].to_s.strip
-      end
-
-      def forgejo_heatmap_date(item)
-        timestamp = (item[:timestamp] || item["timestamp"]).to_i
-        return nil if timestamp <= 0
-
-        timestamp /= 1000 if timestamp > 20_000_000_000
-        Time.at(timestamp).utc.to_date
-      rescue StandardError
-        nil
-      end
-
-      def calendar_weeks_from_counts(counts, start_date, end_date)
-        week_start = start_date - start_date.wday
-        last_week_start = end_date - end_date.wday
-        weeks = []
-        while week_start <= last_week_start
-          weeks << {
-            cells: (0...7).map do |day|
-              date = week_start + day
-              { date: date.iso8601, count: date >= start_date && date <= end_date ? counts[date.iso8601].to_i : 0 }
-            end
-          }
-          week_start += 7
-        end
-        weeks
-      end
-
       def traffic(config, token, owner, name)
-        return nil if forgejo?(config) || token.to_s.empty?
+        return nil if token.to_s.empty?
 
         views = request(config, "/repos/#{owner}/#{name}/traffic/views", token: token).data
         clones = request(config, "/repos/#{owner}/#{name}/traffic/clones", token: token).data
@@ -448,13 +353,9 @@ module RepoBar
       end
 
       def latest_release(config, token, owner, name)
-        response = if forgejo?(config)
-                     request(config, "/repos/#{owner}/#{name}/releases?limit=1", token: token)
-                   else
-                     request(config, "/repos/#{owner}/#{name}/releases/latest", token: token)
-                   end
-        data = forgejo?(config) ? Array(response.data).first : response.data
-        return nil unless data
+        response = request(config, "/repos/#{owner}/#{name}/releases/latest", token: token)
+        data = response.data
+        return nil unless data && !data.empty?
 
         {
           name: data[:name].to_s.empty? ? data[:tag_name] || data["tag_name"] : data[:name],
@@ -526,19 +427,12 @@ module RepoBar
       end
 
       def latest_ci(config, token, owner, name)
-        limit_key = forgejo?(config) ? "limit" : "per_page"
-        response = request(config, "/repos/#{owner}/#{name}/actions/runs?#{limit_key}=1", token: token)
+        response = request(config, "/repos/#{owner}/#{name}/actions/runs?per_page=1", token: token)
         run = Array(response.data[:workflow_runs] || response.data["workflow_runs"]).first
         return { status: "unknown", run: nil } unless run
 
-        status = case run[:conclusion] || run["conclusion"]
-                 when "success" then "passing"
-                 when "failure", "timed_out", "cancelled", "action_required" then "failing"
-                 when nil then "pending"
-                 else "unknown"
-                 end
         {
-          status: status,
+          status: workflow_status(run),
           run: {
             name: run[:name] || run["name"],
             status: run[:status] || run["status"],
@@ -551,60 +445,28 @@ module RepoBar
         { status: "unknown", run: nil }
       end
 
-      def recent_activity(config, token, owner, name, limit = 5)
-        response = if forgejo?(config)
-                     request(config, "/repos/#{owner}/#{name}/activities/feeds?limit=#{limit}", token: token)
-                   else
-                     request(config, "/repos/#{owner}/#{name}/events?per_page=#{limit}", token: token)
-                   end
-        Array(response.data).first(limit).filter_map do |event|
-          if forgejo?(config)
-            actor = event.dig(:act_user, :login) || event.dig("act_user", "login") || "unknown"
-            repo = event.dig(:repo, :full_name) || event.dig("repo", "full_name") || "#{owner}/#{name}"
-            next {
-              type: event[:op_type] || event["op_type"],
-              actor: actor,
-              title: forgejo_activity_title(event),
-              date: event[:created] || event["created"],
-              url: "#{config.dig(:github, :host).to_s.sub(%r{/*\z}, '')}/#{repo}"
-            }
-          end
+      def workflow_status(run)
+        case run[:conclusion] || run["conclusion"]
+        when "success" then "passing"
+        when "failure", "timed_out", "cancelled", "action_required" then "failing"
+        when nil then "pending"
+        else "unknown"
+        end
+      end
 
-          type = event[:type] || event["type"]
-          actor = event.dig(:actor, :login) || event.dig("actor", "login") || "unknown"
-          created_at = event[:created_at] || event["created_at"]
+      def recent_activity(config, token, owner, name, limit = 5)
+        response = request(config, "/repos/#{owner}/#{name}/events?per_page=#{limit}", token: token)
+        Array(response.data).first(limit).map do |event|
           {
-            type: type,
-            actor: actor,
+            type: event[:type] || event["type"],
+            actor: event.dig(:actor, :login) || event.dig("actor", "login") || "unknown",
             title: activity_title(event),
-            date: created_at,
-            url: "https://github.com/#{owner}/#{name}"
+            date: event[:created_at] || event["created_at"],
+            url: "#{config.dig(:github, :host).to_s.sub(%r{/*\z}, '')}/#{owner}/#{name}"
           }
         end
       rescue StandardError
         []
-      end
-
-      def forgejo_activity_title(event)
-        type = event[:op_type] || event["op_type"]
-        case type
-        when "commit_repo"
-          content = event[:content] || event["content"]
-          commit_count = content.to_s.empty? ? nil : Array(JSON.parse(content)["Commits"]).length
-          commit_count ? "pushed #{commit_count} commit#{commit_count == 1 ? '' : 's'}" : "pushed commits"
-        when "create_repo"
-          "created repository"
-        when "rename_repo"
-          "renamed repository"
-        when "create_issue"
-          "opened issue"
-        when "create_pull_request"
-          "opened pull request"
-        else
-          type.to_s.tr("_", " ")
-        end
-      rescue StandardError
-        type.to_s.tr("_", " ")
       end
 
       def activity_title(event)
@@ -629,7 +491,7 @@ module RepoBar
         "activity in #{repo_name}"
       end
 
-      def map_repo_item(item, headers = {}, config = nil)
+      def map_repo_item(item, headers = {})
         owner = item.dig(:owner, :login) || item.dig("owner", "login")
         name = item[:name] || item["name"]
         full_name = item[:full_name] || item["full_name"] || "#{owner}/#{name}"
@@ -647,11 +509,11 @@ module RepoBar
           archived: !!(item[:archived] || item["archived"]),
           updatedAt: item[:updated_at] || item["updated_at"],
           stats: {
-            stars: (item[:stargazers_count] || item["stargazers_count"] || item[:stars_count] || item["stars_count"]).to_i,
+            stars: (item[:stargazers_count] || item["stargazers_count"]).to_i,
             forks: (item[:forks_count] || item["forks_count"]).to_i,
             pushedAt: item[:pushed_at] || item["pushed_at"] || item[:updated_at] || item["updated_at"],
-            openIssues: (forgejo?(config) ? item[:open_issues_count] || item["open_issues_count"] : 0).to_i,
-            openPulls: (forgejo?(config) ? item[:open_pr_counter] || item["open_pr_counter"] : 0).to_i
+            openIssues: 0,
+            openPulls: 0
           },
           ciStatus: "unknown",
           rateLimit: rate_limit_from_headers(headers)
@@ -679,10 +541,10 @@ module RepoBar
         return Response.new(data: JSON.parse(fresh_cached["body"], symbolize_names: true), headers: fresh_cached["headers"], status: fresh_cached["status"].to_i) if fresh_cached
 
         request = Net::HTTP::Get.new(uri)
-        request["Accept"] = forgejo?(config) ? "application/json" : "application/vnd.github+json"
-        request["X-GitHub-Api-Version"] = "2022-11-28" if github?(config)
-        request["User-Agent"] = "repobar-linux"
-        request["Authorization"] = forgejo?(config) ? "token #{token}" : "Bearer #{token}" unless token.to_s.empty?
+        request["Accept"] = "application/vnd.github+json"
+        request["X-GitHub-Api-Version"] = API_VERSION
+        request["User-Agent"] = USER_AGENT
+        request["Authorization"] = "Bearer #{token}" unless token.to_s.empty?
         cached = Cache.rest_entry(config, uri)
         request["If-None-Match"] = cached["headers"]["etag"] if cached && cached.dig("headers", "etag")
         response = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https", read_timeout: 20, open_timeout: 10) do |http|
@@ -692,7 +554,7 @@ module RepoBar
           return Response.new(data: JSON.parse(cached["body"], symbolize_names: true), headers: cached["headers"], status: 304)
         end
         data = response.body.to_s.empty? ? {} : JSON.parse(response.body, symbolize_names: true)
-        raise "#{provider(config).capitalize} HTTP #{response.code}: #{error_message(data)}" unless response.is_a?(Net::HTTPSuccess)
+        raise "GitHub HTTP #{response.code}: #{error_message(data)}" unless response.is_a?(Net::HTTPSuccess)
 
         Cache.write_rest_entry(config, uri, status: response.code.to_i, headers: response.each_header.to_h, body: response.body.to_s)
         Response.new(data: data, headers: response.each_header.to_h, status: response.code.to_i)
@@ -703,11 +565,11 @@ module RepoBar
         cached = Cache.graphql_entry(config, cache_key, ttl_seconds: 900)
         return JSON.parse(cached["body"], symbolize_names: true) if cached
 
-        uri = URI("https://api.github.com/graphql")
+        uri = URI(GRAPHQL_HOST)
         request = Net::HTTP::Post.new(uri)
         request["Accept"] = "application/vnd.github+json"
-        request["X-GitHub-Api-Version"] = "2022-11-28"
-        request["User-Agent"] = "repobar-linux"
+        request["X-GitHub-Api-Version"] = API_VERSION
+        request["User-Agent"] = USER_AGENT
         request["Authorization"] = "Bearer #{token}"
         request.body = JSON.generate(query: query, variables: variables)
         response = Net::HTTP.start(uri.host, uri.port, use_ssl: true, read_timeout: 20, open_timeout: 10) { |http| http.request(request) }
@@ -719,15 +581,6 @@ module RepoBar
       end
 
       def access_token(config)
-        if forgejo?(config)
-          return ENV["REPOBAR_FORGEJO_TOKEN"] if ENV["REPOBAR_FORGEJO_TOKEN"].to_s.strip != ""
-          return ENV["FORGEJO_TOKEN"] if ENV["FORGEJO_TOKEN"].to_s.strip != ""
-          return ENV["GITEA_TOKEN"] if ENV["GITEA_TOKEN"].to_s.strip != ""
-          return config.dig(:github, :token) if config.dig(:github, :token).to_s.strip != ""
-
-          return nil
-        end
-
         return ENV["REPOBAR_GITHUB_TOKEN"] if ENV["REPOBAR_GITHUB_TOKEN"].to_s.strip != ""
         return ENV["GITHUB_TOKEN"] if ENV["GITHUB_TOKEN"].to_s.strip != ""
 
@@ -751,24 +604,6 @@ module RepoBar
           resource: headers["x-ratelimit-resource"],
           resetAt: reset ? Time.at(reset.to_i).utc.iso8601 : nil
         }
-      end
-
-      def provider(config)
-        return "github" unless config.respond_to?(:dig)
-
-        config.dig(:github, :provider).to_s == "forgejo" ? "forgejo" : "github"
-      end
-
-      def forgejo?(config)
-        provider(config) == "forgejo"
-      end
-
-      def github?(config)
-        provider(config) == "github"
-      end
-
-      def limit_param(config)
-        forgejo?(config) ? "limit" : "per_page"
       end
 
       def rest_cache_ttl(config)

@@ -4,7 +4,7 @@
 
 RepoBar Linux is a repository-pressure companion for SolverForge Linux. The product surface is a Waybar chip plus one QuickShell panel. The backend is Ruby, cache-backed, and daemon-owned.
 
-No UI layer fetches hosted repository data directly. GitHub.com and Forgejo calls stay in `lib/repobar/core/github.rb`; local checkout inspection stays in `lib/repobar/core/local_git.rb`.
+No UI layer fetches hosted repository data directly. GitHub.com calls stay in `lib/repobar/core/github.rb`; local checkout inspection stays in `lib/repobar/core/local_git.rb`.
 
 ## High-Level Shape
 
@@ -12,10 +12,10 @@ No UI layer fetches hosted repository data directly. GitHub.com and Forgejo call
 2. `lib/repobar/cli.rb` parses commands and dispatches either read-only work or daemon-owned actions.
 3. `lib/repobar/core/config.rb` normalizes config and settings.
 4. `lib/repobar/core/cache.rb` stores REST responses, GraphQL responses, and rate-limit observations.
-5. `lib/repobar/core/github.rb` fetches GitHub.com and Forgejo repository/account data.
+5. `lib/repobar/core/github.rb` fetches GitHub.com repository/account data (the only provider).
 6. `lib/repobar/core/local_git.rb` scans local checkouts and maps them to hosted repos.
 7. `lib/repobar/runtime/daemon.rb` owns the action socket, refresh loop, refresh request coalescing, search jobs, and async effects.
-8. `lib/repobar/runtime/store.rb` mutates runtime/config state for provider switches, visibility changes, search state, and projections.
+8. `lib/repobar/runtime/store.rb` mutates runtime/config state for visibility changes, search state, and projections.
 9. `lib/repobar/runtime/state.rb` reads and writes cached JSON state.
 10. `lib/repobar/runtime/presenter.rb` converts raw data into UI-ready `view` state.
 11. `lib/repobar/runtime/waybar.rb` renders compact Waybar JSON from cached state.
@@ -26,9 +26,7 @@ No UI layer fetches hosted repository data directly. GitHub.com and Forgejo call
 
 All runtime files default to `~/.local/state/repobar/`.
 
-- `snapshot.json`: canonical cached snapshot plus presenter `view`.
-- `providers/github.json`: last cached GitHub snapshot.
-- `providers/forgejo.json`: last cached Forgejo snapshot.
+- `snapshot.json`: canonical cached snapshot plus presenter `view` (including `view.triage`).
 - `ui.json`: panel open state, focused repo, request timestamp.
 - `search.json`: async search status, query, request id, selection, results, error, timestamp.
 - `state-event.json`: stable watched reload signal for QuickShell.
@@ -43,15 +41,14 @@ All runtime files default to `~/.local/state/repobar/`.
 
 1. `repobar daemon`, `repobar daemon --once`, or `repobar refresh` loads config.
 2. `Runtime::State.with_refresh_lock` serializes refresh work.
-3. `Core::GitHub.auth_status` checks GitHub auth or Forgejo public/private access.
+3. `Core::GitHub.auth_status` checks GitHub auth.
 4. If authenticated and `settings.showContributionHeader` is enabled, `Core::GitHub.account_heatmap` fetches the account activity calendar.
 5. `Core::GitHub.fetch_repositories` loads all pinned repositories first, then visible/recent user repositories up to `repoList.displayLimit`, filters hidden/fork/archive rows, sorts them, and hydrates selected rows. The limit applies only to unpinned extras.
 6. Hydration adds open issue/PR counts, issue/PR preview items, latest release, CI status, recent activity, traffic where available, and per-repo activity heatmap.
 7. `Core::LocalGit.scan` scans configured roots and `Core::LocalGit.match_repositories` attaches local branch/dirty/ahead/behind state.
-8. `Runtime::Presenter.build_snapshot_view` creates summary, chip, account heatmap, repo views, and local repo views.
-9. If the provider/config identity still matches the refresh start identity, `Runtime::State.write_snapshot` writes `snapshot.json`, writes the active provider snapshot, and updates `state-event.json`.
-10. If the user switched provider while the refresh was running, the completed refresh writes only the original provider snapshot under `providers/` and does not replace active UI state.
-11. If the user changed same-provider visibility or pinned order while the refresh was running, the completed refresh re-projects the refreshed rows through the newer pinned/hidden config before writing the provider cache.
+8. `Runtime::Presenter.build_snapshot_view` creates summary, chip, account heatmap, repo views, local repo views, and the triage projection.
+9. If the config identity still matches the refresh start identity, `Runtime::State.write_snapshot` writes `snapshot.json` and updates `state-event.json`.
+10. If the user changed visibility or pinned order while the refresh was running, the completed refresh re-projects the refreshed rows through the newer pinned/hidden config before writing, so a mid-refresh hide or pin move survives.
 12. `Runtime::Store.signal_waybar` sends the configured RTMIN signal to Waybar.
 
 ## Action Flow
@@ -59,7 +56,7 @@ All runtime files default to `~/.local/state/repobar/`.
 1. CLI commands and QuickShell call `Runtime::Daemon.dispatch_action`.
 2. `Runtime::Daemon.ensure_running` starts `repobar daemon` if no action socket is ready.
 3. The daemon handles actions on `daemon.sock` and returns JSON results.
-4. Actions that change provider or repo visibility request a daemon refresh.
+4. Actions that change repo visibility request a daemon refresh.
 5. Action-triggered refresh requests are coalesced: while one refresh is running, additional action requests mark one pending follow-up instead of spawning unbounded refresh threads.
 6. Scheduled timer refresh requests skip queuing pending follow-ups while a refresh is already alive, so slow network refreshes do not collapse into back-to-back timer refreshes.
 
@@ -67,7 +64,6 @@ Daemon-owned actions:
 
 - `open_panel`
 - `close_panel`
-- `set_provider`
 - `pin`
 - `unpin`
 - `pin_move`
@@ -77,15 +73,13 @@ Daemon-owned actions:
 - `search_select`
 - `ping`
 
-## Provider Flow
+## Triage Flow
 
-1. `repobar provider github|forgejo` dispatches `set_provider`.
-2. The current snapshot is saved under the current provider cache path.
-3. Config is rewritten with provider host, API host, and auth source.
-4. `search.json` is reset.
-5. If the target provider has a cached provider snapshot, that snapshot is projected immediately.
-6. If not, a blank provider projection is written while a coalesced async refresh is requested.
-7. Refreshes that started before the switch cannot overwrite the newly active provider view; they can only update the provider snapshot for the identity they started with.
+1. `Runtime::Presenter.triage_view` flattens every cached open PR and issue into one list, newest first, and scores each item: signals (CI failing, local dirty, label rules, review state, unanswered, hot thread, draft, stale/fresh) sum to a clamped attention score.
+2. Attention decides the bucket. A score at or above the flagged threshold puts the item in `Needs attention`; otherwise age decides (`Today` / `This week` / `This month` / `Older`).
+3. Each item also carries an action line (the highest-weight blocker's hint), a repo context block, toned label chips, and its full body.
+4. `triage_view` also rolls up per-repo counts (`repos`) and summary counts (pulls, issues, flagged, stale, unanswered, drafts).
+5. The panel renders three panes from that one projection: repo rail, filterable inbox, reader. Filtering, selection, and reading are view-local and never fetch.
 
 ## Pinned Repo Flow
 
@@ -116,11 +110,12 @@ Modal overlay:
 
 Panel content:
 
-1. Header with title, active account, repository/work counts, provider switch buttons, refresh, and close.
+1. Header with title, active account, repository/work counts, refresh, and close.
 2. Optional account activity heatmap with summary stats.
 3. Search input and result list.
 4. Optional issue/PR reader panel for the selected repository.
 5. Scrollable repository card list.
+6. Triage mode replaces 3-5 with a repo rail, a filterable inbox, and a detailed reader.
 
 Repo cards:
 
@@ -142,6 +137,12 @@ Reader panel:
 2. Up to three cached PR previews.
 3. Up to three cached issue previews.
 4. Open buttons for preview URLs.
+
+Triage panes:
+
+1. Repo rail: one row per repo with open PR/issue counts and flagged/quiet counts; click scopes the inbox, middle-click opens the repo.
+2. Inbox: kind chips, flagged/quiet/repo/grouping chips, a text filter, and rows carrying an attention rail, tone-coloured signal chips, an attention score, and an opened mark; `Needs attention` section first.
+3. Reader: type/number/bucket/attention header, the action line, the full explained signal set, a repo fact grid (repo, CI, open work, stars, last push, release, local, heatmap), toned label chips, the full body, and Open item / Open repo.
 
 ## Waybar Flow
 

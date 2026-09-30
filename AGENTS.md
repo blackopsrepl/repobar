@@ -3,8 +3,8 @@
 ## Project Structure
 
 - `bin/repobar`: Ruby CLI entrypoint.
-- `bin/release-check`: local release gate for syntax, tests, CLI smoke, Forgejo smoke, archive import smoke, and QuickShell load when available.
-- `lib/repobar/core`: config normalization, REST/GraphQL cache, GitHub.com/Forgejo API access, local git scanning, formatting, and process helpers.
+- `bin/release-check`: local release gate for syntax, tests, QML lint, CLI smoke, triage projection smoke, archive import smoke, and QuickShell load when available.
+- `lib/repobar/core`: config normalization, REST/GraphQL cache, GitHub.com API access, local git scanning, formatting, and process helpers.
 - `lib/repobar/runtime`: daemon, action store, cached state files, presenter, QuickShell launcher, Waybar renderer, and Omarchy shell bar installer.
 - `frontend/quickshell/shell.qml`: the only human-facing UI.
 - `docs/`: architecture, CLI reference, and UI assets.
@@ -25,17 +25,17 @@
 - Ruby only for the backend. Do not introduce Swift, TypeScript, Electron, or a second UI stack.
 - Use standard-library dependencies unless a real blocker forces a dependency decision.
 - QuickShell is the only product UI. Waybar is a cached-state chip and launcher.
-- Keep hosted-repository fetching in `lib/repobar/core/github.rb`; UI code must not call GitHub.com or Forgejo directly.
+- GitHub.com is the only repository provider. Do not add a second provider, a provider switch command, or a per-provider snapshot cache; one `snapshot.json` is the product's state.
+- Keep hosted-repository fetching in `lib/repobar/core/github.rb`; UI code must not call GitHub.com directly.
 - Keep local checkout scanning in `lib/repobar/core/local_git.rb`; UI code must not run `git`.
-- Keep runtime actions daemon-owned. CLI and QuickShell dispatch actions; `Runtime::Daemon` and `Runtime::Store` own refresh, search, provider switching, pin/unpin/hide/show, pinned repo moves, and projection.
+- Keep runtime actions daemon-owned. CLI and QuickShell dispatch actions; `Runtime::Daemon` and `Runtime::Store` own refresh, search, pin/unpin/hide/show, pinned repo moves, and projection.
 - Keep QuickShell presentation backed by `snapshot.json`, `ui.json`, `search.json`, and `state-event.json`.
 - Waybar must remain a cached-state renderer, not a fetch path.
 - Omarchy shell integration must edit `~/.config/omarchy/shell.json` only through `Runtime::Omarchy` (the `omarchy` CLI command); never hand-edit the seeded layout elsewhere.
-- Provider switching must preserve provider-specific cached snapshots under `providers/github.json` and `providers/forgejo.json`, restore the target snapshot synchronously when available, and keep switching independent of network latency.
-- Refresh results must not overwrite the active provider snapshot if the refresh started under an older provider/config identity. Late refreshes should update only their original provider cache.
-- Same-provider stale refreshes must preserve newer pinned/hidden visibility state before writing provider caches, including pinned repo order changes made while the refresh was in flight.
+- Refresh results must not overwrite newer visibility state: a refresh that started under an older config identity re-projects its rows through the current pinned/hidden/repo config before writing, including pinned order changes made while the refresh was in flight. A repository hidden mid-refresh must not reappear.
 - Daemon-triggered refresh requests should coalesce through the runtime daemon instead of spawning one refresh thread per UI action. Scheduled timer ticks should not queue pending action refreshes while a refresh is already running.
 - Search must remain an async state transaction through `search.json`; do not make QuickShell block on network search.
+- Triage is a snapshot projection only. Score it in `Runtime::Presenter` (signals, attention, bucket, action, repo context), keep the inbox/rail/reader reading that one projection, and never fetch from triage.
 
 ## UI Rules
 
@@ -45,21 +45,23 @@
 - Preserve the bounded layout: repo heatmaps may clip inside their track, but controls must not push outside the panel bounds.
 - Keep account heatmaps, repo heatmaps, issue/PR reader data, pinned state, and pinned order driven by presenter/config output, not ad hoc UI fetches.
 - Use tooltips and accessible names for icon-only controls.
+- Triage keeps three panes from one projection: repo rail, filterable inbox, reader (action line, signals, repo fact grid, toned labels, body). Keep repo cards out of triage and triage panes out of overview (`visible: !root.triageMode()`).
+- Give the inbox fixed `preferredWidth` + `maximumWidth` and `fillWidth: false`, and the reader an explicit `minimumWidth` floor; otherwise a long body starves the inbox.
+- Single-letter triage shortcuts must be gated on `root.triageShortcutLive()` so the triage filter field can be typed into. Use `Instantiator` (not `Repeater`) when generating `Shortcut`s — `Repeater` delegates must be Items and `Shortcut` is a QtObject.
+- Do not bind a control's `text` to the property its own edit handler writes (a `TextField` bound to `triageQuery` while `onTextEdited` writes `triageQuery`); the binding re-resolves mid-edit.
 
 ## Testing
 
 - Add deterministic tests under `test/`.
 - Prefer testing config normalization, local-git parsing, cache behavior, presenter output, snapshot/state behavior, daemon/store transactions, and Waybar payloads without live network calls.
-- Live GitHub.com and Forgejo checks are smoke tests only.
-- When changing the QuickShell surface, run `qmllint frontend/quickshell/shell.qml` in addition to Ruby checks.
+- Live GitHub.com checks are smoke tests only.
+- When changing the QuickShell surface, run `qmllint frontend/quickshell/shell.qml` in addition to Ruby checks. A clean lint is not proof: load the panel and read it, and check the QuickShell log for delegate/warning lines.
 - When changing docs that list commands or architecture, compare against `lib/repobar/cli.rb`, `lib/repobar/core/config.rb`, and `lib/repobar/runtime/*`.
+- `test/triage_test.rb` carries a guard asserting no Forgejo/provider-switching identifiers reappear in shipped code; keep it passing rather than deleting it.
 
 ## Agent Notes
 
-- GitHub.com mode uses `gh auth token`, `REPOBAR_GITHUB_TOKEN`, or `GITHUB_TOKEN`.
-- Forgejo mode targets `http://vigilance:3002/api/v1` and supports public reads without a token.
-- Forgejo private reads can use `REPOBAR_FORGEJO_TOKEN`, `FORGEJO_TOKEN`, or `GITEA_TOKEN`.
-- Forgejo account heatmap login uses `REPOBAR_FORGEJO_LOGIN` when public auth reports `forgejo:public`, then falls back to `$USER`.
+- GitHub access uses `gh auth token` (with `github.authSource: gh`), `REPOBAR_GITHUB_TOKEN`, or `GITHUB_TOKEN`. GitHub.com is the only provider.
 - Config lives at `~/.repobar/config.json`.
 - Runtime state lives at `~/.local/state/repobar/`.
 - REST/GraphQL/rate-limit cache files live under `~/.local/state/repobar/cache/`.

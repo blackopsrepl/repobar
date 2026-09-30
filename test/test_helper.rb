@@ -23,6 +23,18 @@ module RepoBarTestHelpers
     )
   end
 
+  # Writes a real config file so daemon/store paths exercise the same load/save
+  # round trip the CLI uses.
+  def write_test_config(overrides = {})
+    dir = Dir.mktmpdir
+    path = File.join(dir, "config.json")
+    config = RepoBar::Core::Config.normalize_config(
+      { runtime: { stateDir: File.join(dir, "state") }, localProjects: { roots: [] } }.merge(overrides)
+    )
+    RepoBar::Core::Config.save_config(config, path)
+    path
+  end
+
   def sample_repo(name: "openclaw/openclaw", prs: 2, issues: 3, ci: "passing", dirty: false)
     owner, repo_name = name.split("/", 2)
     {

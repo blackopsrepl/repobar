@@ -25,8 +25,6 @@ module RepoBar
         run_logout_command(args, config_path)
       when "config"
         run_config_command(args, config_path)
-      when "provider"
-        run_provider_command(args, config_path)
       when "daemon"
         Runtime::Daemon.run(config_path, once: args[:once])
         0
@@ -239,13 +237,7 @@ module RepoBar
       status[:authenticated] ? 0 : 1
     end
 
-    def run_login_command(_args, config_path)
-      config = Core::Config.load_config(config_path)
-      if Core::GitHub.forgejo?(config)
-        puts "Forgejo public repositories work without login. For private repositories, export REPOBAR_FORGEJO_TOKEN, FORGEJO_TOKEN, or GITEA_TOKEN."
-        return 0
-      end
-
+    def run_login_command(_args, _config_path)
       result = Core::Process.run_command("gh", ["auth", "login"])
       print result.stdout
       warn result.stderr unless result.success?
@@ -255,13 +247,7 @@ module RepoBar
       1
     end
 
-    def run_logout_command(_args, config_path)
-      config = Core::Config.load_config(config_path)
-      if Core::GitHub.forgejo?(config)
-        puts "Forgejo token logout is environment-managed; unset REPOBAR_FORGEJO_TOKEN, FORGEJO_TOKEN, or GITEA_TOKEN."
-        return 0
-      end
-
+    def run_logout_command(_args, _config_path)
       result = Core::Process.run_command("gh", ["auth", "logout"])
       print result.stdout
       warn result.stderr unless result.success?
@@ -278,17 +264,6 @@ module RepoBar
         print_json(config, args)
         return 0
       end
-      if subcommand == "forgejo"
-        host = args[:positionals][1] || "http://vigilance:3002"
-        config = Runtime::Daemon.dispatch_action(config_path, type: "set_provider", provider: "forgejo", host: host)
-        args[:format] == "json" ? print_json(config, args) : puts("Configured Forgejo at #{config.dig(:github, :host)}.")
-        return 0
-      end
-      if subcommand == "github"
-        config = Runtime::Daemon.dispatch_action(config_path, type: "set_provider", provider: "github")
-        args[:format] == "json" ? print_json(config, args) : puts("Configured GitHub.com.")
-        return 0
-      end
 
       config = Core::Config.load_config(config_path)
       issues = Core::Config.validate_config(config)
@@ -300,19 +275,6 @@ module RepoBar
         issues.each { |issue| puts "#{issue[:severity].upcase}: #{issue[:field]} #{issue[:message]}" }
       end
       issues.any? { |issue| issue[:severity] == "error" } ? 1 : 0
-    end
-
-    def run_provider_command(args, config_path)
-      provider = args[:positionals].first.to_s.downcase
-      raise ArgumentError, "provider must be github or forgejo." unless %w[github forgejo].include?(provider)
-
-      config = Runtime::Daemon.dispatch_action(config_path, type: "set_provider", provider: provider)
-      args[:format] == "json" ? print_json(config, args) : puts("Switched to #{provider == 'github' ? 'GitHub' : 'Forgejo'}.")
-      0
-    end
-
-    def configure_provider(config, provider, host = nil)
-      Runtime::Store.provider_config(config, provider, host)
     end
 
     def run_local_command(args, config_path)
@@ -494,16 +456,14 @@ module RepoBar
         end
       when "contributions"
         login = args[:login] || full_name
-        payload = { login: login, imageUrl: "https://ghchart.rshah.org/#{login}", unsupportedOnForgejo: Core::GitHub.forgejo?(config) }
+        payload = { login: login, imageUrl: "https://ghchart.rshah.org/#{login}" }
         args[:format] == "json" ? print_json(payload, args) : puts(payload[:imageUrl])
       end
       0
     end
 
     def auth_login(config)
-      status = Core::GitHub.auth_status(config)
-      login = status[:login].to_s
-      login == "forgejo:public" ? "pvd" : login
+      Core::GitHub.auth_status(config)[:login].to_s
     end
 
     def output_rows(rows, args)
@@ -898,9 +858,6 @@ module RepoBar
         Commands:
           repobar auth status
           repobar config init|validate
-          repobar config github
-          repobar config forgejo [http://vigilance:3002]
-          repobar provider github|forgejo
           repobar repos [--format json] [--limit N]
           repobar search query [--format json]
           repobar repo owner/name

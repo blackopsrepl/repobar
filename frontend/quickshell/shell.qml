@@ -87,10 +87,15 @@ ShellRoot {
     property var searchResults: searchData.results || []
 
     // Triage mode: a snapshot-driven cross-repo work queue. All state here is
-    // view-local (selection, filter, opened marks); the data itself comes from
-    // the cached snapshot projection, so navigation never touches the network.
+    // view-local (selection, kind filter, focus, repo scope, grouping, opened
+    // marks); the data itself comes from the cached snapshot projection, so
+    // navigation never touches the network.
     property int triageIndex: 0
-    property string triageFilter: "all"
+    property string triageFilter: "all"      // all | pr | issue
+    property string triageFocus: "all"       // all | flagged | stale
+    property string triageRepo: ""           // "" = every repository
+    property string triageQuery: ""
+    property bool triageGrouped: true
     property var triageOpened: ({})
 
     component RepoActionButton: Button {
@@ -272,7 +277,7 @@ ShellRoot {
         property bool rowOpened: false
 
         implicitWidth: 200
-        implicitHeight: 44
+        implicitHeight: rowData && rowData.signals && rowData.signals.length > 0 ? 62 : 46
 
         Rectangle {
             anchors.fill: parent
@@ -299,6 +304,19 @@ ShellRoot {
             anchors.rightMargin: 8
             spacing: 8
 
+            // Attention rail: filled when the item carries blockers.
+            Rectangle {
+                Layout.preferredWidth: 3
+                Layout.fillHeight: true
+                Layout.topMargin: 8
+                Layout.bottomMargin: 8
+                radius: 1.5
+                color: triageRow.rowData && triageRow.rowData.flagged ? root.theme.bad
+                     : triageRow.rowData && triageRow.rowData.stale ? root.theme.warn
+                     : root.theme.border
+                opacity: triageRow.rowData && triageRow.rowData.flagged ? 0.9 : 0.45
+            }
+
             Rectangle {
                 Layout.preferredWidth: 24
                 Layout.preferredHeight: 15
@@ -317,7 +335,7 @@ ShellRoot {
 
             ColumnLayout {
                 Layout.fillWidth: true
-                spacing: 2
+                spacing: 3
 
                 Text {
                     Layout.fillWidth: true
@@ -331,20 +349,40 @@ ShellRoot {
 
                 Text {
                     Layout.fillWidth: true
-                    text: triageRow.rowData ? (triageRow.rowData.repoFullName + "  ·  @" + triageRow.rowData.author + "  ·  " + triageRow.rowData.updatedText + (triageRow.rowData.comments > 0 ? "  ·  " + triageRow.rowData.comments + " comments" : "")) : ""
+                    text: triageRow.rowData ? (triageRow.rowData.repoFullName + "  ·  @" + triageRow.rowData.author + "  ·  " + triageRow.rowData.updatedText) : ""
                     color: root.theme.textMuted
                     font.family: root.textFont
                     font.pixelSize: 9
                     elide: Text.ElideRight
                 }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 4
+                    visible: triageRow.rowData && triageRow.rowData.signals && triageRow.rowData.signals.length > 0
+
+                    Repeater {
+                        model: triageRow.rowData && triageRow.rowData.signals ? triageRow.rowData.signals.slice(0, 3) : []
+
+                        TriageSignalChip {
+                            label: modelData.label
+                            tone: modelData.tone
+                        }
+                    }
+
+                    Item {
+                        Layout.fillWidth: true
+                    }
+                }
             }
 
             Text {
-                visible: triageRow.rowData && triageRow.rowData.labels && triageRow.rowData.labels.length > 0
-                text: triageRow.rowData && triageRow.rowData.labels ? "#" + triageRow.rowData.labels.length : ""
-                color: root.theme.accent
+                text: triageRow.rowData ? String(triageRow.rowData.attention) : ""
+                visible: triageRow.rowData && triageRow.rowData.attention > 0
+                color: triageRow.rowData && triageRow.rowData.flagged ? root.theme.bad : root.theme.textMuted
                 font.family: root.textFont
                 font.pixelSize: 9
+                font.bold: triageRow.rowData && triageRow.rowData.flagged
             }
 
             Text {
@@ -353,6 +391,78 @@ ShellRoot {
                 font.family: root.textFont
                 font.pixelSize: 10
             }
+        }
+    }
+
+    // Compact labelled toggle for the triage filter bar.
+    component TriageFilterChip: Rectangle {
+        id: filterChip
+
+        property string label: ""
+        property string tone: "info"
+        property bool active: false
+        signal picked()
+
+        implicitWidth: filterChipText.implicitWidth + 16
+        implicitHeight: 20
+        radius: 3
+        color: filterChip.active ? root.triageToneFill(filterChip.tone) : (filterHover.containsMouse ? root.theme.surfaceHover : root.theme.surfaceDeep)
+        border.width: 1
+        border.color: filterChip.active ? root.triageToneColor(filterChip.tone) : root.theme.border
+
+        Accessible.role: Accessible.Button
+        Accessible.name: filterChip.label
+
+        MouseArea {
+            id: filterHover
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: filterChip.picked()
+        }
+
+        Text {
+            id: filterChipText
+            anchors.centerIn: parent
+            text: filterChip.label
+            color: filterChip.active ? root.triageToneColor(filterChip.tone) : root.theme.textMuted
+            font.family: root.textFont
+            font.pixelSize: 9
+            font.bold: filterChip.active
+        }
+    }
+
+    // One triage signal: a short tone-coloured chip with a hover explanation.
+    component TriageSignalChip: Rectangle {
+        id: signalChip
+
+        property string label: ""
+        property string tone: "muted"
+
+        implicitWidth: signalText.implicitWidth + 12
+        implicitHeight: 15
+        radius: 3
+        color: root.triageToneFill(signalChip.tone)
+
+        ToolTip.delay: 350
+        ToolTip.visible: signalHover.containsMouse && signalChip.label.length > 0
+        ToolTip.text: signalChip.label
+
+        MouseArea {
+            id: signalHover
+            anchors.fill: parent
+            hoverEnabled: true
+            acceptedButtons: Qt.NoButton
+        }
+
+        Text {
+            id: signalText
+            anchors.centerIn: parent
+            text: signalChip.label
+            color: root.triageToneColor(signalChip.tone)
+            font.family: root.textFont
+            font.pixelSize: 8
+            font.bold: true
         }
     }
 
@@ -554,8 +664,7 @@ ShellRoot {
         if (!heatmap || !heatmap.available) {
             return ""
         }
-        var provider = root.providerActive("forgejo") ? "Forgejo" : "GitHub"
-        return "Global " + provider + " activity  " + (heatmap.total || 0) + " contributions"
+        return "GitHub activity  " + (heatmap.total || 0) + " contributions"
     }
 
     function accountHeatmapWeeks() {
@@ -607,10 +716,6 @@ ShellRoot {
         return (repo.pulls ? repo.pulls.length : 0) + " PR  " + (repo.issues ? repo.issues.length : 0) + " issues"
     }
 
-    function providerActive(provider) {
-        return (viewData.summary.provider || "github") === provider
-    }
-
     function repoUrl(repo) {
         return repo.url || ("https://github.com/" + repo.fullName)
     }
@@ -659,23 +764,113 @@ ShellRoot {
         return triage && triage.items ? triage.items : []
     }
 
-    function triageTotalsText() {
+    function triageStats() {
         var triage = viewData.triage
-        if (!triage) {
+        return triage ? triage : ({})
+    }
+
+    function triageModeCount() {
+        return root.filteredTriageItems().length
+    }
+
+    function triageTotalsText() {
+        var triage = root.triageStats()
+        if (!triage.total) {
             return ""
         }
-        return triage.pullCount + " PR · " + triage.issueCount + " issues"
+        var parts = [triage.pullCount + " PR", triage.issueCount + " issues"]
+        if (triage.flaggedCount > 0) {
+            parts.push(triage.flaggedCount + " flagged")
+        }
+        if (triage.staleCount > 0) {
+            parts.push(triage.staleCount + " quiet")
+        }
+        return parts.join("  ·  ")
+    }
+
+    function triageToneColor(tone) {
+        if (tone === "bad") {
+            return root.theme.bad
+        }
+        if (tone === "warn") {
+            return root.theme.warn
+        }
+        if (tone === "info") {
+            return root.theme.info
+        }
+        if (tone === "good") {
+            return root.theme.goodSoft
+        }
+        return root.theme.textMuted
+    }
+
+    function triageToneFill(tone) {
+        var color = root.triageToneColor(tone)
+        return Qt.rgba(color.r, color.g, color.b, tone === "muted" ? 0.10 : 0.16)
+    }
+
+    function triageSearchActive() {
+        return root.triageQuery.trim().length > 0
+    }
+
+    // Single-letter triage shortcuts must stand down while the triage search
+    // field has focus, or typing a query eats j/k/f/s/g/n/p/A/brackets instead
+    // of entering the character.
+    function triageTyping() {
+        return triageSearchInput.activeFocus
+    }
+
+    function triageShortcutLive() {
+        return root.triageMode() && !root.triageTyping()
+    }
+
+    function matchesTriageQuery(item) {
+        if (!root.triageSearchActive()) {
+            return true
+        }
+        var query = root.triageQuery.trim().toLowerCase()
+        if (("#" + item.number).indexOf(query) === 0) {
+            return true
+        }
+        var haystack = [item.title, item.repoFullName, item.author, (item.labels || []).join(" ")].join(" ").toLowerCase()
+        return haystack.indexOf(query) >= 0
     }
 
     function filteredTriageItems() {
         var items = root.triageAllItems()
         var output = []
         for (var index = 0; index < items.length; index++) {
-            if (root.triageFilter === "all" || items[index].kind === root.triageFilter) {
-                output.push(items[index])
+            var item = items[index]
+            if (root.triageFilter !== "all" && item.kind !== root.triageFilter) {
+                continue
             }
+            if (root.triageRepo.length > 0 && item.repoFullName !== root.triageRepo) {
+                continue
+            }
+            if (root.triageFocus === "flagged" && !item.flagged) {
+                continue
+            }
+            if (root.triageFocus === "stale" && !item.stale) {
+                continue
+            }
+            if (!root.matchesTriageQuery(item)) {
+                continue
+            }
+            output.push(item)
         }
         return output
+    }
+
+    function triageRepos() {
+        var triage = root.triageStats()
+        return triage.repos ? triage.repos : []
+    }
+
+    function triageRepoScopeText() {
+        if (root.triageRepo.length === 0) {
+            return "All repos"
+        }
+        return root.triageRepo
     }
 
     function selectedTriageItem() {
@@ -684,21 +879,7 @@ ShellRoot {
     }
 
     function triageBucketLabel(item) {
-        var parsed = Date.parse(item.updatedAt || "")
-        if (isNaN(parsed)) {
-            return "Earlier"
-        }
-        var ageDays = (Date.now() - parsed) / 86400000
-        if (ageDays < 2) {
-            return "Today"
-        }
-        if (ageDays < 7) {
-            return "This week"
-        }
-        if (ageDays < 30) {
-            return "This month"
-        }
-        return "Older"
+        return item.bucketLabel || "Earlier"
     }
 
     function triageRows() {
@@ -706,10 +887,9 @@ ShellRoot {
         var rows = []
         var lastBucket = ""
         for (var index = 0; index < items.length; index++) {
-            var bucket = root.triageBucketLabel(items[index])
-            if (bucket !== lastBucket) {
-                rows.push({ isSeparator: true, label: bucket })
-                lastBucket = bucket
+            if (root.triageGrouped && items[index].bucket !== lastBucket) {
+                rows.push({ isSeparator: true, label: root.triageBucketLabel(items[index]) })
+                lastBucket = items[index].bucket
             }
             rows.push({ isSeparator: false, item: items[index], index: index })
         }
@@ -758,10 +938,75 @@ ShellRoot {
         root.scrollInboxToIndex(itemIndex)
     }
 
-    function setTriageFilter(filter) {
-        root.triageFilter = filter
+    // Any filter change resets selection to the top of the freshly filtered list.
+    function resetTriageSelection() {
         root.triageIndex = 0
         root.scrollInboxToIndex(0)
+    }
+
+    function setTriageFilter(filter) {
+        root.triageFilter = filter
+        root.resetTriageSelection()
+    }
+
+    function setTriageFocus(focus) {
+        root.triageFocus = focus
+        root.resetTriageSelection()
+    }
+
+    function setTriageRepo(fullName) {
+        root.triageRepo = fullName
+        root.resetTriageSelection()
+    }
+
+    function setTriageQuery(text) {
+        root.triageQuery = text
+        root.resetTriageSelection()
+    }
+
+    function toggleTriageGrouping() {
+        root.triageGrouped = !root.triageGrouped
+        root.resetTriageSelection()
+    }
+
+    function jumpTriageRepo(delta) {
+        var repos = root.triageRepos()
+        if (repos.length === 0) {
+            return
+        }
+        var current = -1
+        for (var index = 0; index < repos.length; index++) {
+            if (repos[index].fullName === root.triageRepo) {
+                current = index
+            }
+        }
+        var next = (current + delta + repos.length + 1) % (repos.length + 1)
+        // Index 0 of the cycle means "all repos"; the rest are repo scopes.
+        root.setTriageRepo(next <= 0 ? "" : repos[next - 1].fullName)
+    }
+
+    function jumpNextFlagged(delta) {
+        var items = root.filteredTriageItems()
+        if (items.length === 0) {
+            return
+        }
+        for (var step = 1; step <= items.length; step++) {
+            var index = (root.triageIndex + step * delta + items.length * items.length) % items.length
+            if (items[index].flagged) {
+                root.selectTriageIndex(index)
+                return
+            }
+        }
+    }
+
+    function focusTriageSearch() {
+        triageSearchInput.forceActiveFocus()
+        triageSearchInput.selectAll()
+    }
+
+    function clearTriageSearch() {
+        triageSearchInput.text = ""
+        root.setTriageQuery("")
     }
 
     function markTriageOpened(item) {
@@ -782,6 +1027,28 @@ ShellRoot {
         }
         root.markTriageOpened(item)
         runRepobar(["open", item.url])
+    }
+
+    function openTriageRepo(item) {
+        if (!item || !item.repo) {
+            return
+        }
+        var url = item.repo.releaseUrl || item.repo.url || ("https://github.com/" + item.repo.fullName)
+        runRepobar(["open", url])
+    }
+
+    function openTriageItemAt(itemIndex) {
+        var items = root.filteredTriageItems()
+        if (itemIndex >= 0 && itemIndex < items.length) {
+            root.openTriageItem(items[itemIndex])
+        }
+    }
+
+    function openTriageRepoAt(itemIndex) {
+        var items = root.filteredTriageItems()
+        if (itemIndex >= 0 && itemIndex < items.length) {
+            root.openTriageRepo(items[itemIndex])
+        }
     }
 
     function showOverviewMode() {
@@ -903,26 +1170,106 @@ ShellRoot {
         Shortcut {
             sequence: "j"
             context: Qt.WindowShortcut
-            enabled: root.triageMode()
+            enabled: root.triageShortcutLive()
             onActivated: root.moveTriageSelection(1)
         }
         Shortcut {
             sequence: "k"
             context: Qt.WindowShortcut
-            enabled: root.triageMode()
+            enabled: root.triageShortcutLive()
             onActivated: root.moveTriageSelection(-1)
         }
         Shortcut {
             sequence: "o"
             context: Qt.WindowShortcut
-            enabled: root.triageMode() && root.selectedTriageItem() !== null
+            enabled: root.triageShortcutLive() && root.selectedTriageItem() !== null
             onActivated: root.openTriageItem(root.selectedTriageItem())
         }
         Shortcut {
             sequence: "r"
             context: Qt.WindowShortcut
-            enabled: root.triageMode()
+            enabled: root.triageShortcutLive()
             onActivated: runRepobar(["refresh"])
+        }
+        Shortcut {
+            sequence: "n"
+            context: Qt.WindowShortcut
+            enabled: root.triageShortcutLive()
+            onActivated: root.jumpNextFlagged(1)
+        }
+        Shortcut {
+            sequence: "p"
+            context: Qt.WindowShortcut
+            enabled: root.triageShortcutLive()
+            onActivated: root.jumpNextFlagged(-1)
+        }
+        Shortcut {
+            sequence: "g"
+            context: Qt.WindowShortcut
+            enabled: root.triageShortcutLive()
+            onActivated: root.toggleTriageGrouping()
+        }
+        Shortcut {
+            sequence: "f"
+            context: Qt.WindowShortcut
+            enabled: root.triageShortcutLive()
+            onActivated: root.setTriageFocus(root.triageFocus === "flagged" ? "all" : "flagged")
+        }
+        Shortcut {
+            sequence: "s"
+            context: Qt.WindowShortcut
+            enabled: root.triageShortcutLive()
+            onActivated: root.setTriageFocus(root.triageFocus === "stale" ? "all" : "stale")
+        }
+        Shortcut {
+            sequence: "A"
+            context: Qt.WindowShortcut
+            enabled: root.triageShortcutLive()
+            onActivated: root.setTriageRepo("")
+        }
+        Shortcut {
+            sequence: "["
+            context: Qt.WindowShortcut
+            enabled: root.triageShortcutLive()
+            onActivated: root.jumpTriageRepo(-1)
+        }
+        Shortcut {
+            sequence: "]"
+            context: Qt.WindowShortcut
+            enabled: root.triageShortcutLive()
+            onActivated: root.jumpTriageRepo(1)
+        }
+        Shortcut {
+            sequence: "/"
+            context: Qt.WindowShortcut
+            enabled: root.triageMode()
+            onActivated: root.focusTriageSearch()
+        }
+        Shortcut {
+            sequence: "Ctrl+J"
+            context: Qt.WindowShortcut
+            enabled: root.triageShortcutLive()
+            onActivated: root.moveTriageSelection(1)
+        }
+        Shortcut {
+            sequence: "Ctrl+K"
+            context: Qt.WindowShortcut
+            enabled: root.triageShortcutLive()
+            onActivated: root.moveTriageSelection(-1)
+        }
+
+        // Number keys jump straight to the nth item in the filtered inbox.
+        // Instantiator (not Repeater) because Repeater delegates must be Items
+        // and a Shortcut is a QtObject.
+        Instantiator {
+            model: 9
+
+            Shortcut {
+                sequence: String(index + 1)
+                context: Qt.WindowShortcut
+                enabled: root.triageShortcutLive() && root.triageModeCount() > index
+                onActivated: root.selectTriageIndex(index)
+            }
         }
 
         Item {
@@ -977,6 +1324,15 @@ ShellRoot {
                                 font.pixelSize: 12
                                 elide: Text.ElideRight
                             }
+                            Text {
+                                Layout.fillWidth: true
+                                visible: root.triageMode()
+                                text: root.triageTotalsText() + (root.triageStats().ageSpanText ? "  ·  " + root.triageStats().ageSpanText : "")
+                                color: root.theme.textMuted
+                                font.family: root.textFont
+                                font.pixelSize: 10
+                                elide: Text.ElideRight
+                            }
                         }
 
                         ModeTabButton {
@@ -992,16 +1348,6 @@ ShellRoot {
                             enabled: !root.triageMode()
                             ToolTip.text: "Cross-repo issue and PR inbox"
                             onClicked: root.showTriageMode()
-                        }
-                        Button {
-                            text: "GH"
-                            enabled: !root.providerActive("github")
-                            onClicked: runRepobar(["provider", "github"])
-                        }
-                        Button {
-                            text: "FJ"
-                            enabled: !root.providerActive("forgejo")
-                            onClicked: runRepobar(["provider", "forgejo"])
                         }
                         Button {
                             text: "Refresh"
@@ -1579,19 +1925,178 @@ ShellRoot {
                         anchors.margins: 1
                         spacing: 0
 
+                        // Repo rail: per-repository pressure across the whole
+                        // snapshot, so a repo drowning in flagged work is obvious
+                        // before you scroll the flat inbox.
+                        ColumnLayout {
+                            id: repoRailCol
+                            Layout.preferredWidth: 176
+                            Layout.fillWidth: false
+                            Layout.fillHeight: true
+                            spacing: 0
+                            visible: triageSplit.width >= 720
+
+                            Rectangle {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 34
+                                color: "transparent"
+
+                                Text {
+                                    anchors.left: parent.left
+                                    anchors.leftMargin: 8
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: "Repos"
+                                    color: root.theme.text
+                                    font.family: root.textFont
+                                    font.pixelSize: 12
+                                    font.bold: true
+                                }
+
+                                Text {
+                                    anchors.right: parent.right
+                                    anchors.rightMargin: 8
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: root.triageStats().repoCount || 0
+                                    color: root.theme.textMuted
+                                    font.family: root.textFont
+                                    font.pixelSize: 10
+                                }
+                            }
+
+                            Rectangle {
+                                Layout.fillWidth: true
+                                height: 1
+                                color: root.theme.border
+                            }
+
+                            ListView {
+                                id: repoRailList
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                clip: true
+                                spacing: 2
+                                model: root.triageRepos()
+                                topMargin: 4
+
+                                delegate: Rectangle {
+                                    id: repoRailRow
+
+                                    property bool rowSelected: root.triageRepo === modelData.fullName
+
+                                    width: repoRailList.width - 8
+                                    x: 4
+                                    height: 52
+                                    radius: 3
+                                    color: rowSelected ? root.theme.surfaceSelect : (repoRailHover.containsMouse ? root.theme.surfaceHover : "transparent")
+                                    border.width: 1
+                                    border.color: rowSelected ? root.theme.info : "transparent"
+
+                                    MouseArea {
+                                        id: repoRailHover
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+                                        onClicked: function(mouse) {
+                                            if (mouse.button === Qt.MiddleButton) {
+                                                runRepobar(["open", modelData.url || ("https://github.com/" + modelData.fullName)])
+                                            } else {
+                                                root.setTriageRepo(repoRailRow.rowSelected ? "" : modelData.fullName)
+                                            }
+                                        }
+                                    }
+
+                                    RowLayout {
+                                        anchors.fill: parent
+                                        anchors.leftMargin: 6
+                                        anchors.rightMargin: 6
+                                        spacing: 6
+
+                                        Rectangle {
+                                            Layout.preferredWidth: 3
+                                            Layout.fillHeight: true
+                                            Layout.topMargin: 7
+                                            Layout.bottomMargin: 7
+                                            radius: 1.5
+                                            color: modelData.flaggedCount > 0 ? root.theme.bad
+                                                 : modelData.ciStatus === "failing" ? root.theme.warn
+                                                 : root.theme.border
+                                            opacity: modelData.flaggedCount > 0 ? 0.9 : 0.5
+                                        }
+
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 2
+
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: modelData.name || modelData.fullName
+                                                color: root.theme.text
+                                                font.family: root.textFont
+                                                font.pixelSize: 11
+                                                font.bold: true
+                                                elide: Text.ElideRight
+                                            }
+
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: modelData.pullCount + " PR  " + modelData.issueCount + " issues"
+                                                color: root.theme.textMuted
+                                                font.family: root.textFont
+                                                font.pixelSize: 9
+                                                elide: Text.ElideRight
+                                            }
+
+                                            Text {
+                                                Layout.fillWidth: true
+                                                visible: modelData.flaggedCount > 0 || modelData.staleCount > 0
+                                                text: (modelData.flaggedCount > 0 ? modelData.flaggedCount + " needing attention" : "") +
+                                                      (modelData.flaggedCount > 0 && modelData.staleCount > 0 ? "  ·  " : "") +
+                                                      (modelData.staleCount > 0 ? modelData.staleCount + " quiet" : "")
+                                                color: modelData.flaggedCount > 0 ? root.theme.bad : root.theme.warn
+                                                font.family: root.textFont
+                                                font.pixelSize: 9
+                                                elide: Text.ElideRight
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                Layout.margins: 6
+                                visible: root.triageRepos().length === 0
+                                text: "No repository work in the cached snapshot."
+                                color: root.theme.textMuted
+                                font.family: root.textFont
+                                font.pixelSize: 10
+                                wrapMode: Text.Wrap
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.preferredWidth: 1
+                            Layout.fillHeight: true
+                            visible: repoRailCol.visible
+                            color: root.theme.border
+                        }
+
                         // Inbox: every open PR and issue across the cached
-                        // snapshot, newest first, grouped by age.
+                        // snapshot, newest first, grouped by attention.
                         ColumnLayout {
                             id: inboxCol
-                            Layout.preferredWidth: Math.min(400, triageSplit.width * 0.46)
-                            Layout.maximumWidth: Math.min(400, Math.max(240, triageSplit.width * 0.5))
+                            Layout.preferredWidth: Math.min(420, triageSplit.width * 0.44)
+                            Layout.maximumWidth: Math.min(460, Math.max(240, triageSplit.width * 0.5))
                             Layout.fillWidth: false
                             Layout.fillHeight: true
                             spacing: 0
 
                             RowLayout {
                                 Layout.fillWidth: true
-                                Layout.margins: 8
+                                Layout.leftMargin: 8
+                                Layout.rightMargin: 8
+                                Layout.topMargin: 8
                                 spacing: 6
 
                                 Text {
@@ -1604,33 +2109,79 @@ ShellRoot {
 
                                 Text {
                                     Layout.fillWidth: true
-                                    text: root.triageTotalsText()
+                                    text: root.triageModeCount() + " / " + root.triageStats().total
                                     color: root.theme.textMuted
                                     font.family: root.textFont
                                     font.pixelSize: 10
                                     elide: Text.ElideRight
                                 }
 
-                                Button {
-                                    checkable: true
-                                    checked: root.triageFilter === "all"
-                                    enabled: root.triageFilter !== "all"
-                                    text: "All"
-                                    onClicked: root.setTriageFilter("all")
+                                TriageFilterChip {
+                                    label: "All"
+                                    active: root.triageFilter === "all"
+                                    onPicked: root.setTriageFilter("all")
                                 }
-                                Button {
-                                    checkable: true
-                                    checked: root.triageFilter === "pr"
-                                    enabled: root.triageFilter !== "pr"
-                                    text: "PR"
-                                    onClicked: root.setTriageFilter("pr")
+                                TriageFilterChip {
+                                    label: "PR " + root.triageStats().pullCount
+                                    active: root.triageFilter === "pr"
+                                    onPicked: root.setTriageFilter("pr")
                                 }
-                                Button {
-                                    checkable: true
-                                    checked: root.triageFilter === "issue"
-                                    enabled: root.triageFilter !== "issue"
-                                    text: "Issues"
-                                    onClicked: root.setTriageFilter("issue")
+                                TriageFilterChip {
+                                    label: "Issues " + root.triageStats().issueCount
+                                    active: root.triageFilter === "issue"
+                                    onPicked: root.setTriageFilter("issue")
+                                }
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Layout.leftMargin: 8
+                                Layout.rightMargin: 8
+                                Layout.bottomMargin: 8
+                                spacing: 6
+
+                                TriageFilterChip {
+                                    label: "Flagged " + root.triageStats().flaggedCount
+                                    tone: "bad"
+                                    active: root.triageFocus === "flagged"
+                                    onPicked: root.setTriageFocus(root.triageFocus === "flagged" ? "all" : "flagged")
+                                }
+                                TriageFilterChip {
+                                    label: "Quiet " + root.triageStats().staleCount
+                                    tone: "warn"
+                                    active: root.triageFocus === "stale"
+                                    onPicked: root.setTriageFocus(root.triageFocus === "stale" ? "all" : "stale")
+                                }
+                                TriageFilterChip {
+                                    label: root.triageRepoScopeText()
+                                    active: root.triageRepo.length > 0
+                                    onPicked: root.setTriageRepo("")
+                                }
+                                Item {
+                                    Layout.fillWidth: true
+                                }
+                                TriageFilterChip {
+                                    label: root.triageGrouped ? "Grouped" : "Flat"
+                                    active: root.triageGrouped
+                                    onPicked: root.toggleTriageGrouping()
+                                }
+                            }
+
+                            TextField {
+                                id: triageSearchInput
+                                Layout.fillWidth: true
+                                Layout.leftMargin: 8
+                                Layout.rightMargin: 8
+                                Layout.bottomMargin: 8
+                                placeholderText: "/ to filter by title, repo, author, label or #number"
+                                font.family: root.textFont
+                                // Deliberately NOT bound to triageQuery: a two-way binding here
+                                // re-resolves on every keystroke and eats the first character.
+                                // onTextEdited is the only writer; Escape clears both sides.
+                                onTextEdited: root.setTriageQuery(text)
+                                Keys.onEscapePressed: {
+                                    root.setTriageQuery("")
+                                    text = ""
                                 }
                             }
 
@@ -1648,11 +2199,11 @@ ShellRoot {
                                 spacing: 0
                                 model: root.triageRows()
                                 currentIndex: -1
-                                cacheBuffer: 600
+                                cacheBuffer: 900
 
                                 delegate: Item {
                                     width: inboxList.width
-                                    height: modelData.isSeparator ? 26 : 44
+                                    height: modelData.isSeparator ? 26 : (modelData.item && modelData.item.signals && modelData.item.signals.length > 0 ? 62 : 46)
 
                                     TriageInboxSeparator {
                                         anchors.fill: parent
@@ -1675,7 +2226,9 @@ ShellRoot {
                                 Layout.margins: 6
                                 Layout.fillWidth: true
                                 visible: root.triageRows().length === 0
-                                text: root.triageAllItems().length === 0 ? "No open pull requests or issues in the cached snapshot." : "No items match this filter."
+                                text: root.triageAllItems().length === 0 ? "No open pull requests or issues in the cached snapshot."
+                                    : (root.triageSearchActive() ? "Nothing matches that filter."
+                                    : "No items match this filter. Press f for flagged, s for quiet, or A for all repos.")
                                 color: root.theme.textMuted
                                 font.family: root.textFont
                                 font.pixelSize: 11
@@ -1689,13 +2242,15 @@ ShellRoot {
                             color: root.theme.border
                         }
 
-                        // Reader: the selected item, full body, no fetches.
+                        // Reader: what needs doing, why it is flagged, the repo
+                        // context, signals, labels, then the full body. Snapshot
+                        // data only — reading never fetches.
                         ColumnLayout {
                             id: readerCol
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             Layout.minimumWidth: 300
-                            Layout.preferredWidth: Math.max(300, triageSplit.width - Math.min(400, triageSplit.width * 0.46) - 1)
+                            Layout.preferredWidth: Math.max(300, triageSplit.width - Math.min(420, triageSplit.width * 0.44) - 1)
                             spacing: 8
 
                             Item {
@@ -1718,7 +2273,7 @@ ShellRoot {
                                     }
                                     Text {
                                         Layout.alignment: Qt.AlignHCenter
-                                        text: "Pick an item from the inbox  ·  j / k to move  ·  Enter to open"
+                                        text: "j / k move  ·  n / p next flagged  ·  1-9 jump  ·  Enter opens"
                                         color: root.theme.borderStrong
                                         font.family: root.textFont
                                         font.pixelSize: 10
@@ -1760,13 +2315,39 @@ ShellRoot {
                                                 Layout.fillWidth: true
                                                 spacing: 3
 
-                                                Text {
+                                                RowLayout {
                                                     Layout.fillWidth: true
-                                                    text: root.selectedTriageItem() ? (root.selectedTriageItem().kind === "pr" ? "Pull Request" : "Issue") : ""
-                                                    color: root.selectedTriageItem() && root.selectedTriageItem().kind === "pr" ? root.theme.goodSoft : root.theme.info
-                                                    font.family: root.textFont
-                                                    font.pixelSize: 9
-                                                    font.bold: true
+                                                    spacing: 6
+
+                                                    Text {
+                                                        text: root.selectedTriageItem() ? (root.selectedTriageItem().kind === "pr" ? "Pull Request" : "Issue") : ""
+                                                        color: root.selectedTriageItem() && root.selectedTriageItem().kind === "pr" ? root.theme.goodSoft : root.theme.info
+                                                        font.family: root.textFont
+                                                        font.pixelSize: 9
+                                                        font.bold: true
+                                                    }
+
+                                                    Text {
+                                                        text: root.selectedTriageItem() ? ("#" + root.selectedTriageItem().number + "  ·  " + root.selectedTriageItem().bucketLabel) : ""
+                                                        color: root.theme.textMuted
+                                                        font.family: root.textFont
+                                                        font.pixelSize: 9
+                                                    }
+
+                                                    Item {
+                                                        Layout.fillWidth: true
+                                                    }
+
+                                                    Text {
+                                                        visible: root.selectedTriageItem() && root.selectedTriageItem().attention > 0
+                                                        text: root.selectedTriageItem() && root.selectedTriageItem().flagged
+                                                            ? "attention " + root.selectedTriageItem().attention
+                                                            : "attention " + (root.selectedTriageItem() ? root.selectedTriageItem().attention : 0)
+                                                        color: root.selectedTriageItem() && root.selectedTriageItem().flagged ? root.theme.bad : root.theme.textMuted
+                                                        font.family: root.textFont
+                                                        font.pixelSize: 9
+                                                        font.bold: true
+                                                    }
                                                 }
 
                                                 Text {
@@ -1781,21 +2362,11 @@ ShellRoot {
 
                                                 Text {
                                                     Layout.fillWidth: true
-                                                    text: root.selectedTriageItem() ? (root.selectedTriageItem().repoFullName + "  ·  opened by @" + root.selectedTriageItem().author + "  ·  updated " + root.selectedTriageItem().updatedText + (root.selectedTriageItem().draft ? "  ·  draft" : "")) : ""
+                                                    text: root.selectedTriageItem() ? (root.selectedTriageItem().repoFullName + "  ·  opened by @" + root.selectedTriageItem().author + "  ·  updated " + root.selectedTriageItem().updatedText + "  ·  " + root.selectedTriageItem().ageText + " old" + (root.selectedTriageItem().draft ? "  ·  draft" : "")) : ""
                                                     color: root.theme.textMuted
                                                     font.family: root.textFont
                                                     font.pixelSize: 10
                                                     elide: Text.ElideRight
-                                                }
-
-                                                Text {
-                                                    Layout.fillWidth: true
-                                                    visible: root.selectedTriageItem() && root.selectedTriageItem().labels && root.selectedTriageItem().labels.length > 0
-                                                    text: root.selectedTriageItem() ? root.selectedTriageItem().labels.join("  ") : ""
-                                                    color: root.theme.accent
-                                                    font.family: root.textFont
-                                                    font.pixelSize: 10
-                                                    wrapMode: Text.Wrap
                                                 }
                                             }
 
@@ -1805,6 +2376,221 @@ ShellRoot {
                                                 color: root.theme.textMuted
                                                 font.family: root.textFont
                                                 font.pixelSize: 10
+                                            }
+                                        }
+
+                                        // What needs doing, in one line, from the
+                                        // highest-weight signal on this item.
+                                        Rectangle {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 10
+                                            Layout.rightMargin: 10
+                                            implicitHeight: triageActionText.implicitHeight + 14
+                                            radius: 3
+                                            color: root.selectedTriageItem() && root.selectedTriageItem().flagged ? root.triageToneFill("bad") : root.theme.surfaceAlt
+                                            border.width: 1
+                                            border.color: root.selectedTriageItem() && root.selectedTriageItem().flagged ? root.theme.bad : root.theme.border
+
+                                            Text {
+                                                id: triageActionText
+                                                anchors.fill: parent
+                                                anchors.margins: 7
+                                                text: root.selectedTriageItem() ? root.selectedTriageItem().action : ""
+                                                color: root.selectedTriageItem() && root.selectedTriageItem().flagged ? root.theme.bad : root.theme.goodSoft
+                                                font.family: root.textFont
+                                                font.pixelSize: 11
+                                                wrapMode: Text.Wrap
+                                            }
+                                        }
+
+                                        // Signals: the full, explained set — not the
+                                        // three the row can fit.
+                                        Flow {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 10
+                                            Layout.rightMargin: 10
+                                            spacing: 6
+                                            visible: root.selectedTriageItem() !== null && root.selectedTriageItem().signals.length > 0
+
+                                            Repeater {
+                                                model: root.selectedTriageItem() ? root.selectedTriageItem().signals : []
+
+                                                RowLayout {
+                                                    spacing: 4
+
+                                                    TriageSignalChip {
+                                                        label: modelData.label
+                                                        tone: modelData.tone
+                                                    }
+
+                                                    Text {
+                                                        text: modelData.hint
+                                                        color: root.theme.textMuted
+                                                        font.family: root.textFont
+                                                        font.pixelSize: 9
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // Repo context: the same card facts the
+                                        // overview shows, next to the work item.
+                                        Rectangle {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 10
+                                            Layout.rightMargin: 10
+                                            implicitHeight: repoFacts.implicitHeight + 16
+                                            radius: 3
+                                            color: root.theme.bg
+                                            border.width: 1
+                                            border.color: root.theme.border
+                                            visible: root.selectedTriageItem() !== null
+
+                                            GridLayout {
+                                                id: repoFacts
+                                                anchors.fill: parent
+                                                anchors.margins: 8
+                                                columns: 4
+                                                rowSpacing: 4
+                                                columnSpacing: 10
+
+                                                Text {
+                                                    text: "Repo"
+                                                    color: root.theme.textMuted
+                                                    font.family: root.textFont
+                                                    font.pixelSize: 10
+                                                }
+                                                Text {
+                                                    Layout.fillWidth: true
+                                                    text: root.selectedTriageItem() ? root.selectedTriageItem().repo.fullName : ""
+                                                    color: root.theme.text
+                                                    font.family: root.textFont
+                                                    font.pixelSize: 10
+                                                    elide: Text.ElideRight
+                                                }
+                                                Text {
+                                                    text: "CI"
+                                                    color: root.theme.textMuted
+                                                    font.family: root.textFont
+                                                    font.pixelSize: 10
+                                                }
+                                                Text {
+                                                    Layout.fillWidth: true
+                                                    text: root.selectedTriageItem() ? root.selectedTriageItem().repo.ciStatus : ""
+                                                    color: root.selectedTriageItem() && root.selectedTriageItem().repo.ciStatus === "failing" ? root.theme.bad : root.theme.text
+                                                    font.family: root.textFont
+                                                    font.pixelSize: 10
+                                                    elide: Text.ElideRight
+                                                }
+
+                                                Text {
+                                                    text: "Open work"
+                                                    color: root.theme.textMuted
+                                                    font.family: root.textFont
+                                                    font.pixelSize: 10
+                                                }
+                                                Text {
+                                                    Layout.fillWidth: true
+                                                    text: root.selectedTriageItem() ? (root.selectedTriageItem().repo.openPulls + " PR  " + root.selectedTriageItem().repo.openIssues + " issues") : ""
+                                                    color: root.theme.text
+                                                    font.family: root.textFont
+                                                    font.pixelSize: 10
+                                                    elide: Text.ElideRight
+                                                }
+                                                Text {
+                                                    text: "Stars"
+                                                    color: root.theme.textMuted
+                                                    font.family: root.textFont
+                                                    font.pixelSize: 10
+                                                }
+                                                Text {
+                                                    Layout.fillWidth: true
+                                                    text: root.selectedTriageItem() ? String(root.selectedTriageItem().repo.stars) : ""
+                                                    color: root.theme.text
+                                                    font.family: root.textFont
+                                                    font.pixelSize: 10
+                                                    elide: Text.ElideRight
+                                                }
+
+                                                Text {
+                                                    text: "Last push"
+                                                    color: root.theme.textMuted
+                                                    font.family: root.textFont
+                                                    font.pixelSize: 10
+                                                }
+                                                Text {
+                                                    Layout.fillWidth: true
+                                                    text: root.selectedTriageItem() ? root.selectedTriageItem().repo.pushedText : ""
+                                                    color: root.theme.text
+                                                    font.family: root.textFont
+                                                    font.pixelSize: 10
+                                                    elide: Text.ElideRight
+                                                }
+                                                Text {
+                                                    text: "Release"
+                                                    color: root.theme.textMuted
+                                                    font.family: root.textFont
+                                                    font.pixelSize: 10
+                                                }
+                                                Text {
+                                                    Layout.fillWidth: true
+                                                    text: root.selectedTriageItem() && root.selectedTriageItem().repo.releaseTag ? root.selectedTriageItem().repo.releaseTag : "none"
+                                                    color: root.theme.text
+                                                    font.family: root.textFont
+                                                    font.pixelSize: 10
+                                                    elide: Text.ElideRight
+                                                }
+
+                                                Text {
+                                                    text: "Local"
+                                                    color: root.theme.textMuted
+                                                    font.family: root.textFont
+                                                    font.pixelSize: 10
+                                                    visible: root.selectedTriageItem() !== null && root.selectedTriageItem().repo.local !== null
+                                                }
+                                                Text {
+                                                    Layout.fillWidth: true
+                                                    visible: root.selectedTriageItem() !== null && root.selectedTriageItem().repo.local !== null
+                                                    text: root.selectedTriageItem() && root.selectedTriageItem().repo.local
+                                                        ? (root.selectedTriageItem().repo.local.branch + (root.selectedTriageItem().repo.local.dirty ? "  dirty " + root.selectedTriageItem().repo.local.dirtyCount : "  clean"))
+                                                        : ""
+                                                    color: root.selectedTriageItem() && root.selectedTriageItem().repo.local && root.selectedTriageItem().repo.local.dirty ? root.theme.warn : root.theme.text
+                                                    font.family: root.textFont
+                                                    font.pixelSize: 10
+                                                    elide: Text.ElideRight
+                                                }
+                                                Text {
+                                                    text: "Heatmap"
+                                                    color: root.theme.textMuted
+                                                    font.family: root.textFont
+                                                    font.pixelSize: 10
+                                                }
+                                                Text {
+                                                    Layout.fillWidth: true
+                                                    text: root.selectedTriageItem() ? root.selectedTriageItem().repo.heatmapText : ""
+                                                    color: root.theme.text
+                                                    font.family: root.textFont
+                                                    font.pixelSize: 10
+                                                    elide: Text.ElideRight
+                                                }
+                                            }
+                                        }
+
+                                        // Labels, toned by what they mean for triage.
+                                        Flow {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 10
+                                            Layout.rightMargin: 10
+                                            spacing: 5
+                                            visible: root.selectedTriageItem() !== null && root.selectedTriageItem().labelChips.length > 0
+
+                                            Repeater {
+                                                model: root.selectedTriageItem() ? root.selectedTriageItem().labelChips : []
+
+                                                TriageSignalChip {
+                                                    label: modelData.name
+                                                    tone: modelData.tone
+                                                }
                                             }
                                         }
 
@@ -1833,16 +2619,30 @@ ShellRoot {
                                             spacing: 8
 
                                             Button {
-                                                text: "Open in browser"
+                                                text: "Open item"
                                                 enabled: root.selectedTriageItem() !== null
                                                 onClicked: root.openTriageItem(root.selectedTriageItem())
                                             }
-                                            Text {
-                                                text: "Esc closes the panel  ·  o opens the selected item"
-                                                color: root.theme.borderStrong
-                                                font.family: root.textFont
-                                                font.pixelSize: 9
+                                            Button {
+                                                text: "Open repo"
+                                                enabled: root.selectedTriageItem() !== null
+                                                onClicked: root.openTriageRepo(root.selectedTriageItem())
                                             }
+                                            Item {
+                                                Layout.fillWidth: true
+                                            }
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 10
+                                            Layout.rightMargin: 10
+                                            Layout.bottomMargin: 10
+                                            text: "j / k move  ·  n / p next flagged  ·  1-9 jump  ·  / filter  ·  f flagged  ·  s quiet  ·  g grouping  ·  [ ] repo  ·  A all repos  ·  o open  ·  r refresh"
+                                            color: root.theme.borderStrong
+                                            font.family: root.textFont
+                                            font.pixelSize: 9
+                                            wrapMode: Text.Wrap
                                         }
                                     }
                                 }

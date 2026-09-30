@@ -7,6 +7,51 @@ module RepoBar
     module Presenter
       module_function
 
+      # Triage scoring. Signals are the shared vocabulary between the inbox rows,
+      # the reader pane, and the Ruby tests: each one carries a human label, a
+      # tone for the chip, an action hint, and an additive weight. The clamped sum
+      # is the attention score that decides what the inbox pulls to the top.
+      TRIAGE_STALE_DAYS = 14
+      TRIAGE_HOT_COMMENTS = 5
+      TRIAGE_FLAGGED_SCORE = 3
+      TRIAGE_MAX_ATTENTION = 99
+
+      TRIAGE_LABEL_RULES = [
+        {
+          id: "priority", label: "priority", tone: "bad", weight: 3,
+          hint: "Label says priority — handle next",
+          pattern: /(?:\A|[^a-z0-9])(?:p0|p1|blocker|urgent|critical|prio\w*|priority\w*)(?:\z|[^a-z0-9])/
+        },
+        {
+          id: "blocked", label: "blocked", tone: "warn", weight: 3,
+          hint: "Marked blocked or waiting — unblock or close",
+          pattern: /\bblocked\b|\bon hold\b|\bwaiting\b|\bstalled\b|\bpaused\b/
+        },
+        {
+          id: "bug", label: "bug", tone: "bad", weight: 2,
+          hint: "Reported as a bug — reproduce or label",
+          pattern: /\bbug\b|\bregression\b|\bbroken\b|\bdefect\b/
+        },
+        {
+          id: "review", label: "needs review", tone: "warn", weight: 2,
+          hint: "Label asks for review — review it",
+          pattern: /\bneeds?[ _-]?review\b|\breview[ _-]?needed\b|\bawaiting[ _-]?review\b|\bneeds?[ _-]?changes\b/
+        },
+        {
+          id: "help", label: "help wanted", tone: "info", weight: 0,
+          hint: "Contributor-friendly — good candidate to share",
+          pattern: /\bgood[ _-]?first[ _-]?issue\b|\bhelp[ _-]?wanted\b/
+        }
+      ].freeze
+
+      TRIAGE_BUCKET_LABELS = {
+        "flagged" => "Needs attention",
+        "today" => "Today",
+        "week" => "This week",
+        "month" => "This month",
+        "older" => "Older"
+      }.freeze
+
       def build_snapshot_view(config, snapshot, now = Time.now)
         repos = Array(snapshot[:repositories])
         summary = summary_view(config, snapshot, repos, now)
@@ -17,29 +62,46 @@ module RepoBar
           chip: chip_view(summary, repos),
           repositories: repo_views,
           localRepositories: Array(snapshot[:localRepositories]),
-          triage: triage_view(repo_views)
+          triage: triage_view(repo_views, now)
         }
       end
 
       # Cross-repository work queue for the triage mode. One flat, newest-first
       # inbox built entirely from the cached snapshot so the UI never blocks on
-      # the network. README-style separators come from this projection too.
-      def triage_view(repo_views)
+      # the network, plus the per-item signal set the reader and the rows share.
+      def triage_view(repo_views, now = Time.now)
         items = repo_views.flat_map do |repo|
-          Array(repo[:pulls]).map { |item| triage_item(repo, item, "pr") } +
-            Array(repo[:issues]).map { |item| triage_item(repo, item, "issue") }
+          Array(repo[:pulls]).map { |item| triage_item(repo, item, "pr", now) } +
+            Array(repo[:issues]).map { |item| triage_item(repo, item, "issue", now) }
         end
         items.sort_by! { |item| item[:updatedAt].to_s }
         items.reverse!
+        flagged = items.select { |item| item[:flagged] }
+        oldest = items.max_by { |item| [item[:ageDays].to_i, item[:updatedAt].to_s] }
+        next_up = flagged.max_by { |item| [item[:attention].to_i, item[:updatedAt].to_s] }
         {
           total: items.length,
-          pullCount: items.count { |item| item[:kind] == "pr" },
-          issueCount: items.count { |item| item[:kind] == "issue" },
+          pullCount: count_kind(items, "pr"),
+          issueCount: count_kind(items, "issue"),
+          draftCount: items.count { |item| item[:draft] },
+          flaggedCount: flagged.length,
+          staleCount: items.count { |item| item[:stale] },
+          unansweredCount: items.count { |item| signal?(item, "unanswered") },
+          repoCount: repo_views.count { |repo| repo_work_count(repo).positive? },
+          newCount: items.count { |item| signal?(item, "fresh") },
+          ageSpanText: items.empty? ? "" : "#{oldest[:ageText]} oldest · #{items.first[:updatedText]} newest",
+          nextUpId: next_up && next_up[:id],
+          repos: triage_repos(repo_views, items),
           items: items
         }
       end
 
-      def triage_item(repo, item, kind)
+      def triage_item(repo, item, kind, now)
+        updated_at = item[:updatedAt]
+        age_days = triage_age_days(updated_at, now)
+        signals = triage_signals(repo, item, kind, age_days)
+        attention = signals.sum { |signal| signal[:weight].to_i }.clamp(0, TRIAGE_MAX_ATTENTION)
+        bucket = triage_bucket(attention, age_days)
         {
           id: "#{repo[:fullName].to_s.downcase}##{item[:number]}",
           kind: kind,
@@ -50,15 +112,183 @@ module RepoBar
           title: item[:title],
           author: item[:author],
           draft: !!item[:draft],
-          updatedAt: item[:updatedAt],
+          updatedAt: updated_at,
           updatedText: item[:updatedText],
+          ageDays: age_days,
+          ageText: triage_age_text(age_days),
           url: item[:url],
           labels: item[:labels],
+          labelChips: triage_label_chips(item[:labels]),
           comments: item[:comments].to_i,
           reviewComments: item[:reviewComments].to_i,
+          activity: item[:comments].to_i + item[:reviewComments].to_i,
+          answered: kind == "pr" ? true : item[:comments].to_i.positive?,
+          stale: age_days >= TRIAGE_STALE_DAYS,
+          attention: attention,
+          flagged: attention >= TRIAGE_FLAGGED_SCORE,
+          bucket: bucket,
+          bucketLabel: TRIAGE_BUCKET_LABELS[bucket],
+          action: triage_action(item, signals, age_days),
+          summary: triage_summary(item),
+          signals: signals.map { |signal| signal.reject { |key, _| key == :weight } },
+          repo: triage_repo_context(repo),
           body: item[:body],
           bodyFull: item[:bodyFull]
         }
+      end
+
+      def triage_signals(repo, item, kind, age_days)
+        signals = []
+        signals << triage_signal("ci", "CI failing", "bad", 3, "CI is red on this repo — fix or triage") if repo[:ciStatus] == "failing"
+        signals << triage_signal("dirty", "local dirty", "warn", 1, "Local checkout is dirty — commit, stash, or discard") if repo.dig(:local, :dirty)
+        triage_label_rules(item[:labels]).each do |rule|
+          signals << triage_signal(rule[:id], rule[:label], rule[:tone], rule[:weight], rule[:hint])
+        end
+        if kind == "pr"
+          if item[:reviewComments].to_i.positive?
+            signals << triage_signal("reviewing", "#{item[:reviewComments]} review comments", "info", 1, "Review thread is live — read the comments")
+          elsif !item[:draft]
+            signals << triage_signal("unreviewed", "no review yet", "warn", 2, "No review has started — review or request one")
+          end
+        elsif item[:comments].to_i.zero?
+          signals << triage_signal("unanswered", "unanswered", "warn", 2, "No replies yet — answer or close")
+        end
+        if item[:comments].to_i >= TRIAGE_HOT_COMMENTS
+          signals << triage_signal("hot", "#{item[:comments]} comments", "info", 1, "Active thread — join the discussion")
+        end
+        signals << triage_signal("draft", "draft", "muted", -2, "Draft — not ready for review") if item[:draft]
+        if age_days >= TRIAGE_STALE_DAYS
+          signals << triage_signal("stale", "quiet #{triage_age_text(age_days)}", "muted", 1, "Quiet for #{triage_age_text(age_days)} — close or revive")
+        else
+          signals << triage_signal("fresh", "new", "info", 1, "Opened #{triage_age_text(age_days)} — triage it")
+        end
+        signals
+      end
+
+      def triage_signal(id, label, tone, weight, hint)
+        { id: id, label: label, tone: tone, weight: weight, hint: hint }
+      end
+
+      def triage_label_rules(labels)
+        downcased = Array(labels).map { |label| label.to_s.downcase }
+        TRIAGE_LABEL_RULES.select { |rule| downcased.any? { |label| rule[:pattern].match?(label) } }
+      end
+
+      def triage_label_chips(labels)
+        Array(labels).first(8).map do |label|
+          name = label.to_s
+          rule = TRIAGE_LABEL_RULES.find { |candidate| candidate[:pattern].match?(name.downcase) }
+          { name: name, tone: rule ? rule[:tone] : "muted" }
+        end
+      end
+
+      def triage_action(item, signals, age_days)
+        # "fresh" is informational, not a blocker: a draft or a quiet item should
+        # not be told to "triage it now" just because it is recent.
+        blockers = signals.select { |signal| signal[:weight].to_i.positive? && signal[:id] != "fresh" }
+        top = blockers.max_by { |signal| signal[:weight].to_i }
+        return top[:hint] if top
+        return "Draft — not ready for review" if item[:draft]
+        return "Quiet for #{triage_age_text(age_days)} — close or revive" if age_days >= TRIAGE_STALE_DAYS
+
+        "Open #{triage_age_text(age_days)} — nothing flagged yet"
+      end
+
+      def triage_summary(item)
+        parts = []
+        parts << "#{item[:comments].to_i} comment#{item[:comments].to_i == 1 ? '' : 's'}" if item[:comments].to_i.positive?
+        parts << "#{item[:reviewComments].to_i} review comment#{item[:reviewComments].to_i == 1 ? '' : 's'}" if item[:reviewComments].to_i.positive?
+        parts << "#{Array(item[:labels]).length} labels" if Array(item[:labels]).any?
+        parts.join(" · ")
+      end
+
+      def triage_bucket(attention, age_days)
+        return "flagged" if attention >= TRIAGE_FLAGGED_SCORE
+        return "today" if age_days < 2
+        return "week" if age_days < 7
+        return "month" if age_days < 30
+
+        "older"
+      end
+
+      def triage_age_days(updated_at, now)
+        time = Core::Format.parse_time(updated_at)
+        return 0 unless time
+
+        [((now - time) / 86_400.0).floor, 0].max
+      end
+
+      def triage_age_text(age_days)
+        return "today" if age_days.to_i < 1
+
+        "#{age_days.to_i}d"
+      end
+
+      def triage_repo_context(repo)
+        {
+          fullName: repo[:fullName],
+          name: repo[:name],
+          owner: repo[:owner],
+          ownerAvatarUrl: repo[:ownerAvatarUrl],
+          url: repo[:url],
+          description: repo[:description],
+          private: repo[:private],
+          ciStatus: repo[:ciStatus],
+          status: repo[:status],
+          stars: repo[:stars],
+          forks: repo[:forks],
+          openPulls: repo[:openPulls],
+          openIssues: repo[:openIssues],
+          pushedText: repo[:pushedText],
+          releaseTag: repo[:latestRelease] && repo[:latestRelease][:tag],
+          releaseUrl: repo[:latestRelease] && repo[:latestRelease][:url],
+          heatmapText: "#{repo.dig(:heatmap, :total).to_i} commits / 6m",
+          local: repo[:local],
+          pending: repo[:pending],
+          error: repo[:error]
+        }
+      end
+
+      def triage_repos(repo_views, items)
+        repo_views.filter_map do |repo|
+          repo_items = items.select { |item| item[:repoFullName] == repo[:fullName] }
+          next if repo_items.empty?
+
+          {
+            fullName: repo[:fullName],
+            owner: repo[:owner],
+            ownerAvatarUrl: repo[:ownerAvatarUrl],
+            url: repo[:url],
+            total: repo_items.length,
+            pullCount: count_kind(repo_items, "pr"),
+            issueCount: count_kind(repo_items, "issue"),
+            flaggedCount: repo_items.count { |item| item[:flagged] },
+            staleCount: repo_items.count { |item| item[:stale] },
+            attention: repo_items.sum { |item| item[:attention].to_i },
+            oldestText: repo_items.max_by { |item| item[:ageDays].to_i }&.dig(:ageText),
+            oldestAgeDays: repo_items.map { |item| item[:ageDays].to_i }.max.to_i,
+            ciStatus: repo[:ciStatus],
+            status: repo[:status],
+            stars: repo[:stars],
+            openPulls: repo[:openPulls],
+            openIssues: repo[:openIssues],
+            pushedText: repo[:pushedText],
+            local: repo[:local],
+            pending: repo[:pending]
+          }
+        end.sort_by { |entry| [-entry[:flaggedCount], -entry[:attention].to_i, entry[:fullName].to_s.downcase] }
+      end
+
+      def count_kind(items, kind)
+        items.count { |item| item[:kind] == kind }
+      end
+
+      def signal?(item, id)
+        Array(item[:signals]).any? { |signal| signal[:id] == id }
+      end
+
+      def repo_work_count(repo)
+        Array(repo[:pulls]).length + Array(repo[:issues]).length
       end
 
       def summary_view(_config, snapshot, repos, now)
@@ -69,10 +299,7 @@ module RepoBar
         open_prs = repos.sum { |repo| repo.dig(:stats, :openPulls).to_i }
         open_issues = repos.sum { |repo| repo.dig(:stats, :openIssues).to_i }
         rate = snapshot.dig(:account, :rateLimit) || {}
-        provider = snapshot.dig(:account, :provider) || snapshot.dig(:config, :provider) || "github"
         {
-          provider: provider.to_s == "forgejo" ? "forgejo" : "github",
-          providerLabel: provider.to_s == "forgejo" ? "FJ" : "GH",
           repoCount: repos.length,
           openPulls: open_prs,
           openIssues: open_issues,
@@ -102,12 +329,10 @@ module RepoBar
         work << "#{summary[:openIssues]} issue" if summary[:openIssues].positive?
         work << "#{summary[:dirtyRepos]} dirty" if summary[:dirtyRepos].positive?
         work << "#{summary[:ciFailures]} CI" if summary[:ciFailures].positive?
-        label = summary[:providerLabel] || "GH"
-        text = work.empty? ? "#{label} #{summary[:repoCount]} repos" : "#{label} #{work.first(2).join(' ')}"
+        text = work.empty? ? "#{summary[:repoCount]} repos" : work.first(2).join(" ")
 
         tooltip = [
-          "RepoBar",
-          "Provider: #{summary[:provider] == 'forgejo' ? 'Forgejo' : 'GitHub'}",
+          "RepoBar (GitHub)",
           "Account: #{summary[:account] || 'not authenticated'}",
           "Repos: #{summary[:repoCount]}",
           "Open PRs: #{summary[:openPulls]}",

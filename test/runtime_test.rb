@@ -15,19 +15,22 @@ class RuntimeTest < Minitest::Test
     payload = RepoBar::Runtime::Waybar.payload(config, snapshot, Time.now)
 
     assert_equal 2, snapshot.dig(:view, :summary, :repoCount)
-    assert_includes payload[:text], "GH"
+    assert_equal "blackopsrepl", snapshot.dig(:view, :summary, :account)
+    assert_equal "2 PR 1 issue", payload[:text]
     assert_includes payload[:class], "has-work"
     assert_includes payload[:class], "has-ci-failures"
     assert_includes payload[:class], "local-dirty"
     assert_includes payload[:class], "rate-limited"
+    assert_includes payload[:tooltip], "RepoBar (GitHub)"
   end
 
   def test_waybar_payload_reports_loading_without_snapshot
     config = build_config
     payload = RepoBar::Runtime::Waybar.payload(config, nil, Time.now)
 
-    assert_equal "GH ...", payload[:text]
+    assert_equal "...", payload[:text]
     assert_includes payload[:class], "loading"
+    assert_includes payload[:tooltip], "cached GitHub data"
   end
 
   def test_repo_view_always_exposes_heatmap_track

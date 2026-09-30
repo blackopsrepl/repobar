@@ -133,9 +133,6 @@ module RepoBar
             result = Store.open_panel(config_path, action[:repository], mode: action[:mode])
           when "close_panel"
             result = Store.close_panel(config_path)
-          when "set_provider"
-            result = Store.set_provider(config_path, action[:provider].to_s, host: action[:host])
-            refresh_needed = true
           when "pin"
             result = Store.pin_repo(config_path, action[:fullName])
             refresh_needed = true

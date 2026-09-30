@@ -29,46 +29,6 @@ module RepoBar
         state
       end
 
-      def provider_config(config, provider, host = nil)
-        if provider == "forgejo"
-          forgejo_host = host || "http://vigilance:3002"
-          return config.merge(
-            github: config[:github].merge(
-              provider: "forgejo",
-              host: forgejo_host,
-              apiHost: "#{forgejo_host.sub(%r{/*\z}, '')}/api/v1",
-              authSource: "env"
-            )
-          )
-        end
-
-        config.merge(
-          github: config[:github].merge(
-            provider: "github",
-            host: "https://github.com",
-            apiHost: "https://api.github.com",
-            authSource: "gh"
-          )
-        )
-      end
-
-      def set_provider(config_path, provider, host: nil)
-        raise ArgumentError, "provider must be github or forgejo." unless %w[github forgejo].include?(provider)
-
-        config = Core::Config.load_config(config_path)
-        State.write_provider_snapshot(config, State.read_snapshot(config), config.dig(:github, :provider))
-        saved = Core::Config.save_config(provider_config(config, provider, host), config_path)
-        State.write_search_state(saved, State.default_search_state)
-        cached = State.read_provider_snapshot(saved, provider)
-        if cached
-          State.write_snapshot(saved, cached)
-          signal_waybar(saved)
-        else
-          commit_projection(saved, repositories: [], local_repositories: [], account: { provider: provider })
-        end
-        saved
-      end
-
       def pin_repo(config_path, full_name)
         mutate_repo_visibility(config_path, full_name) do |repo_list, normalized|
           repo_list[:hiddenRepositories].delete(normalized)
@@ -160,10 +120,7 @@ module RepoBar
       end
 
       def commit_refresh(config, repositories, local_repositories, account)
-        snapshot = State.build_snapshot(config, repositories, local_repositories, account)
-        State.write_snapshot(config, snapshot)
-        signal_waybar(config)
-        snapshot
+        write_projection(config, State.build_snapshot(config, repositories, local_repositories, account))
       end
 
       def refresh_effect(config_path)
@@ -177,14 +134,14 @@ module RepoBar
         local_repositories = Core::LocalGit.scan(config)
         repositories = Core::LocalGit.match_repositories(repositories, local_repositories)
         current = Core::Config.load_config(config_path)
-        if refresh_identity(current) == started_identity
-          commit_refresh(current, repositories, local_repositories, account)
-        else
-          target_config = stale_refresh_provider_config(config, current)
-          snapshot = stale_refresh_snapshot(config, target_config, repositories, local_repositories, account)
-          State.write_provider_snapshot(target_config, snapshot, snapshot.dig(:config, :provider))
-          snapshot
-        end
+        return commit_refresh(current, repositories, local_repositories, account) if refresh_identity(current) == started_identity
+
+        # The user changed config while this refresh was in flight (pinned order,
+        # hidden/visible repositories, local roots, or state dir). Re-project the
+        # fresh rows through the newer config so a late refresh cannot clobber
+        # visibility state that was written after the refresh started.
+        snapshot = stale_refresh_snapshot(current, repositories, local_repositories, account)
+        write_projection(stale_refresh_target_config(config, current), snapshot)
       end
 
       def search_effect(config_path, query, limit, request_id)
@@ -221,9 +178,7 @@ module RepoBar
         hidden = Array(config.dig(:repoList, :hiddenRepositories))
         repositories.reject! { |repo| hidden.include?(repo[:fullName].to_s.downcase) }
         repositories = order_repositories_for_config(config, repositories)
-        account = deep_dup(previous && previous[:account]) || {}
-        account[:provider] = config.dig(:github, :provider)
-        commit_projection(config, repositories: repositories, local_repositories: Array(previous && previous[:localRepositories]), account: account)
+        commit_projection(config, repositories: repositories, local_repositories: Array(previous && previous[:localRepositories]), account: deep_dup(previous && previous[:account]) || {})
       end
 
       def ensure_projected_repo(config, repositories, full_name)
@@ -244,9 +199,7 @@ module RepoBar
         end
       end
 
-      def stale_refresh_snapshot(started_config, current_config, repositories, local_repositories, account)
-        return State.build_snapshot(started_config, repositories, local_repositories, account) if current_config.dig(:github, :provider) != started_config.dig(:github, :provider)
-
+      def stale_refresh_snapshot(current_config, repositories, local_repositories, account)
         current_repositories = repositories.map { |repo| deep_dup(repo) }
         hidden = Array(current_config.dig(:repoList, :hiddenRepositories))
         current_repositories.reject! { |repo| hidden.include?(repo[:fullName].to_s.downcase) }
@@ -258,18 +211,22 @@ module RepoBar
           current_repositories << (active_repo ? deep_dup(active_repo) : lightweight_repo(current_config, full_name))
         end
         current_repositories = order_repositories_for_config(current_config, current_repositories)
-        State.build_snapshot(current_config, current_repositories, local_repositories, account.merge(provider: current_config.dig(:github, :provider)))
+        State.build_snapshot(current_config, current_repositories, local_repositories, account)
       end
 
-      def stale_refresh_provider_config(started_config, current_config)
-        return started_config if current_config.dig(:github, :provider) != started_config.dig(:github, :provider)
+      # A refresh that started against a different state directory belongs to that
+      # directory; everything else writes back to the current config location.
+      def stale_refresh_target_config(started_config, current_config)
         return started_config if current_config.dig(:runtime, :stateDir) != started_config.dig(:runtime, :stateDir)
 
         current_config
       end
 
       def commit_projection(config, repositories:, local_repositories:, account:)
-        snapshot = State.build_snapshot(config, repositories, local_repositories, account)
+        write_projection(config, State.build_snapshot(config, repositories, local_repositories, account))
+      end
+
+      def write_projection(config, snapshot)
         State.write_snapshot(config, snapshot)
         signal_waybar(config)
         snapshot

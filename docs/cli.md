@@ -19,15 +19,8 @@
 - `repobar logout`
 - `repobar config init`
 - `repobar config validate`
-- `repobar config github`
-- `repobar config forgejo [http://vigilance:3002]`
-- `repobar provider github|forgejo`
 
-GitHub.com is the default provider. It uses `gh auth token`, `REPOBAR_GITHUB_TOKEN`, or `GITHUB_TOKEN`.
-
-Forgejo mode targets `http://vigilance:3002/api/v1` by default. Public repositories work without a token; private repositories can use `REPOBAR_FORGEJO_TOKEN`, `FORGEJO_TOKEN`, or `GITEA_TOKEN`.
-
-`repobar provider github|forgejo` switches the active provider, resets search state, restores a provider-specific cached snapshot when available, and requests a daemon refresh. The visible switch is cache-first and should not wait for network data. If an older refresh finishes after the switch, it updates only its original provider cache instead of replacing the active snapshot.
+RepoBar is GitHub-only: the GitHub.com REST/GraphQL API is the single source. It uses `gh auth token`, `REPOBAR_GITHUB_TOKEN`, or `GITHUB_TOKEN`. There is no second provider and no `config github|forgejo` or `provider` command; a non-https host or a leftover provider key in `config.json` normalizes back to the GitHub defaults instead of loading a dead endpoint.
 
 ## Repository Lists
 
@@ -64,7 +57,7 @@ Default `repos` output comes from the cached snapshot, refreshing only when no s
 - `repobar activity LOGIN`
 - `repobar contributions [LOGIN]`
 
-`discussions` and `contributions` are GitHub-oriented surfaces. Forgejo returns empty discussions and marks the legacy contribution image helper as unsupported.
+`discussions` and `contributions` are GitHub-only surfaces; `contributions` prints the GitHub contribution-chart image URL for a login.
 
 ## Search
 
@@ -127,7 +120,11 @@ Visibility commands mutate `repoList.pinnedRepositories` and `repoList.hiddenRep
 - `repobar omarchy remove`
 - `repobar open URL`
 
-`waybar render` reads cached state only. `waybar refresh` calls the daemon refresh path. Daemon-triggered refresh requests are coalesced so repeated UI actions can leave one active refresh and one pending follow-up, not one thread per click. `panel`, `ui open`, and `waybar panel` open the QuickShell panel. `ui triage` opens it straight into triage mode: a cross-repository inbox of cached open pull requests and issues (newest first) beside a full-body reader. Triage is a projection of the cached snapshot — filtering, selection, and reading never touch the network.
+`waybar render` reads cached state only. `waybar refresh` calls the daemon refresh path. Daemon-triggered refresh requests are coalesced so repeated UI actions can leave one active refresh and one pending follow-up, not one thread per click. `panel`, `ui open`, and `waybar panel` open the QuickShell panel.
+
+`ui triage` opens the panel straight into triage mode: a cross-repository inbox of cached open pull requests and issues beside a full-body reader, fed by the presenter's triage projection. Each item carries an attention score, a bucket (`Needs attention` first, then `Today` / `This week` / `This month` / `Older`), an action line, a repo context block, and signals such as CI failing, local dirty, priority/blocked/bug/needs-review labels, unanswered issues, draft state, and staleness.
+
+Triage keys: `j`/`k` move, `n`/`p` jump to the next/previous flagged item, `1`-`9` jump to the nth item, `/` focuses the filter field, `f` toggles the flagged-only filter, `s` toggles the quiet-only filter, `g` toggles age grouping, `[`/`]` cycle the repo scope, `A` clears the repo scope, `o` opens the selected item, `r` refreshes. Clicking a repo-rail row scopes the inbox to that repo; middle-clicking it opens the repo. Filtering, selection, and reading never touch the network — triage is a projection of the cached snapshot. Single-letter triage keys are disabled while the triage filter field has focus, so typing a query never triggers a shortcut.
 
 `omarchy install` mounts the Waybar chip as an Omarchy shell bar command module in `~/.config/omarchy/shell.json`, by default after `omarchy.weather`; it seeds the user file from the Omarchy defaults when missing. Flags: `--after ID`, `--section left|center|right`, `--index N`, `--interval SECONDS` (default 5), `--exec PATH`. `omarchy status` reports the installed module, and `omarchy remove` drops it.
 

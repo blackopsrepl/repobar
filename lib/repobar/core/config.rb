@@ -8,6 +8,9 @@ module RepoBar
     module Config
       CONFIG_VERSION = 1
       DEFAULT_QUICKSHELL_COMMAND = "quickshell"
+      GITHUB_HOST = "https://github.com"
+      GITHUB_API_HOST = "https://api.github.com"
+      AUTH_SOURCES = %w[gh env].freeze
 
       module_function
 
@@ -15,9 +18,8 @@ module RepoBar
         {
           version: CONFIG_VERSION,
           github: {
-            provider: "github",
-            host: "https://github.com",
-            apiHost: "https://api.github.com",
+            host: GITHUB_HOST,
+            apiHost: GITHUB_API_HOST,
             authSource: "gh"
           },
           repoList: {
@@ -118,12 +120,9 @@ module RepoBar
       def validate_config(config)
         issues = []
         issues << issue("error", "version", "Expected #{CONFIG_VERSION}.") unless config[:version] == CONFIG_VERSION
-        provider = config.dig(:github, :provider).to_s
-        api_host = config.dig(:github, :apiHost).to_s
-        if provider == "forgejo"
-          issues << issue("error", "github.apiHost", "Must be http(s).") unless api_host.match?(%r{\Ahttps?://})
-        elsif !api_host.start_with?("https://")
-          issues << issue("error", "github.apiHost", "Must be https.")
+        auth_source = config.dig(:github, :authSource).to_s
+        unless AUTH_SOURCES.include?(auth_source)
+          issues << issue("error", "github.authSource", "Must be one of #{AUTH_SOURCES.join(', ')}.")
         end
         issues << issue("warning", "runtime.refreshSeconds", "Refresh below 60 seconds can burn GitHub budget.") if config.dig(:runtime, :refreshSeconds).to_i < 60
         shell = config.dig(:runtime, :quickShellShell).to_s
@@ -134,18 +133,15 @@ module RepoBar
         issues
       end
 
+      # RepoBar only speaks the GitHub.com REST/GraphQL API, which is https-only.
+      # A config pointing at anything else (an old local host, say) falls back to
+      # the GitHub defaults instead of loading a dead endpoint.
       def normalize_github(input)
         input = (input || {}).transform_keys(&:to_sym)
-        provider = clean(input[:provider] || input[:service])
-        provider = provider == "forgejo" ? "forgejo" : "github"
-        default_host = provider == "forgejo" ? "http://vigilance:3002" : "https://github.com"
-        host = clean(input[:host]) || default_host
-        default_api_host = provider == "forgejo" ? "#{host.sub(%r{/*\z}, '')}/api/v1" : "https://api.github.com"
         {
-          provider: provider,
-          host: host,
-          apiHost: clean(input[:apiHost]) || default_api_host,
-          authSource: clean(input[:authSource]) || (provider == "forgejo" ? "env" : "gh")
+          host: https_host(input[:host]) || GITHUB_HOST,
+          apiHost: https_host(input[:apiHost]) || GITHUB_API_HOST,
+          authSource: clean(input[:authSource]) || "gh"
         }
       end
 
@@ -239,6 +235,11 @@ module RepoBar
           seen[full_name] = true
           full_name
         end
+      end
+
+      def https_host(value)
+        text = clean(value)
+        text&.start_with?("https://") ? text : nil
       end
 
       def positive_int(value, default)

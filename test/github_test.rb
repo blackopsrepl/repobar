@@ -2,41 +2,33 @@
 
 require_relative "test_helper"
 
-class ForgejoTest < Minitest::Test
-  def test_maps_forgejo_repository_shape
-    config = RepoBar::Core::Config.normalize_config(github: { provider: "forgejo" })
+class GitHubTest < Minitest::Test
+  def test_maps_github_repository_shape
+    config = build_config
     repo = RepoBar::Core::GitHub.map_repo_item(
       {
-        owner: { login: "pvd", avatar_url: "http://vigilance:3002/avatars/pvd" },
-        name: "repo-bar-port",
-        full_name: "pvd/repo-bar-port",
-        html_url: "http://vigilance:3002/pvd/repo-bar-port",
+        owner: { login: "blackopsrepl", avatar_url: "https://avatars.githubusercontent.com/u/1" },
+        name: "repobar",
+        full_name: "blackopsrepl/repobar",
+        html_url: "https://github.com/blackopsrepl/repobar",
         private: false,
         fork: false,
         archived: false,
-        stars_count: 7,
+        stargazers_count: 7,
         forks_count: 2,
-        open_issues_count: 3,
-        open_pr_counter: 4,
+        pushed_at: "2026-05-06T10:00:00Z",
         updated_at: "2026-05-06T10:00:00Z"
       },
-      {},
-      config
+      {}
     )
 
-    assert_equal "pvd/repo-bar-port", repo[:fullName]
-    assert_equal "http://vigilance:3002/avatars/pvd", repo[:ownerAvatarUrl]
-    assert_equal "http://vigilance:3002/pvd/repo-bar-port", repo[:url]
+    assert_equal "blackopsrepl/repobar", repo[:fullName]
+    assert_equal "https://avatars.githubusercontent.com/u/1", repo[:ownerAvatarUrl]
+    assert_equal "https://github.com/blackopsrepl/repobar", repo[:url]
     assert_equal 7, repo.dig(:stats, :stars)
-    assert_equal 3, repo.dig(:stats, :openIssues)
-    assert_equal 4, repo.dig(:stats, :openPulls)
+    assert_equal 2, repo.dig(:stats, :forks)
     assert_equal "2026-05-06T10:00:00Z", repo.dig(:stats, :pushedAt)
-  end
-
-  def test_public_forgejo_has_no_required_token
-    config = RepoBar::Core::Config.normalize_config(github: { provider: "forgejo" })
-
-    assert_nil RepoBar::Core::GitHub.access_token(config)
+    assert_equal 0, repo.dig(:stats, :openIssues)
   end
 
   def test_fetch_repositories_does_not_cap_pinned_repositories
@@ -66,6 +58,18 @@ class ForgejoTest < Minitest::Test
 
         assert_match "HTTP 503", error.message
       end
+    end
+  end
+
+  def test_repository_lookup_treats_404_as_removal_and_raises_other_failures
+    config = build_config
+
+    RepoBar::Core::GitHub.stub(:request, ->(*) { raise "GitHub HTTP 404: Not Found" }) do
+      assert_nil RepoBar::Core::GitHub.repository(config, "token", "gone/gone")
+    end
+
+    RepoBar::Core::GitHub.stub(:request, ->(*) { raise "GitHub HTTP 503: service unavailable" }) do
+      assert_raises(RuntimeError) { RepoBar::Core::GitHub.repository(config, "token", "flaky/flaky") }
     end
   end
 
@@ -124,60 +128,51 @@ class ForgejoTest < Minitest::Test
     end
   end
 
-  def test_account_heatmap_uses_forgejo_user_heatmap
-    config = RepoBar::Core::Config.normalize_config(github: { provider: "forgejo" })
-    today = Date.today
-    yesterday = today - 1
-    response = RepoBar::Core::GitHub::Response.new(
-      data: [
-        { timestamp: Time.utc(today.year, today.month, today.day, 9).to_i, contributions: 2 },
-        { timestamp: Time.utc(today.year, today.month, today.day, 12).to_i, contributions: 3 },
-        { timestamp: Time.utc(yesterday.year, yesterday.month, yesterday.day, 12).to_i, contributions: 1 }
-      ],
-      headers: {},
-      status: 200
-    )
-    calls = []
+  def test_account_heatmap_without_token_is_unavailable
+    config = build_config
 
-    RepoBar::Core::GitHub.stub(:request, lambda { |_config, path, token:|
-      calls << [path, token]
-      response
-    }) do
-      heatmap = RepoBar::Core::GitHub.account_heatmap(config, nil, "pvd")
-      counts = heatmap[:cells].to_h { |cell| [cell[:date], cell[:count]] }
+    heatmap = RepoBar::Core::GitHub.account_heatmap(config, nil, "blackopsrepl")
 
-      assert_equal true, heatmap[:available]
-      assert_equal 6, heatmap[:total]
-      assert_equal 5, heatmap[:max]
-      assert_equal 5, counts[today.iso8601]
-      assert_equal 1, counts[yesterday.iso8601]
-      assert_operator heatmap[:weeks].length, :>=, 52
-      assert_equal [["/users/pvd/heatmap", nil]], calls
+    assert_equal false, heatmap[:available]
+    assert_empty heatmap[:cells]
+  end
+
+  def test_access_token_prefers_repobar_env_then_github_env
+    config = build_config
+    previous = ENV.to_h.slice("REPOBAR_GITHUB_TOKEN", "GITHUB_TOKEN")
+
+    ENV["GITHUB_TOKEN"] = "fallback"
+    ENV["REPOBAR_GITHUB_TOKEN"] = "primary"
+    assert_equal "primary", RepoBar::Core::GitHub.access_token(config)
+
+    ENV.delete("REPOBAR_GITHUB_TOKEN")
+    assert_equal "fallback", RepoBar::Core::GitHub.access_token(config)
+  ensure
+    %w[REPOBAR_GITHUB_TOKEN GITHUB_TOKEN].each { |key| ENV.delete(key) }
+    previous.each { |key, value| ENV[key] = value }
+  end
+
+  def test_latest_release_is_nil_for_empty_payload
+    config = build_config
+
+    RepoBar::Core::GitHub.stub(:request, ->(*) { RepoBar::Core::GitHub::Response.new(data: {}, headers: {}, status: 200) }) do
+      assert_nil RepoBar::Core::GitHub.latest_release(config, "token", "one", "one")
     end
   end
 
-  def test_public_forgejo_account_heatmap_uses_local_login
-    config = RepoBar::Core::Config.normalize_config(github: { provider: "forgejo" })
-    old_login = ENV["REPOBAR_FORGEJO_LOGIN"]
-    ENV["REPOBAR_FORGEJO_LOGIN"] = "pvd"
-    response = RepoBar::Core::GitHub::Response.new(data: [], headers: {}, status: 200)
-    calls = []
+  def test_workflow_status_maps_conclusions
+    cases = {
+      { conclusion: "success" } => "passing",
+      { conclusion: "failure" } => "failing",
+      { conclusion: "timed_out" } => "failing",
+      { conclusion: "cancelled" } => "failing",
+      { conclusion: "action_required" } => "failing",
+      { conclusion: nil, status: "in_progress" } => "pending",
+      { conclusion: "skipped" } => "unknown"
+    }
 
-    RepoBar::Core::GitHub.stub(:request, lambda { |_config, path, token:|
-      calls << [path, token]
-      response
-    }) do
-      heatmap = RepoBar::Core::GitHub.account_heatmap(config, nil, "forgejo:public")
-
-      assert_equal true, heatmap[:available]
-      assert_equal "pvd", heatmap[:login]
-      assert_equal [["/users/pvd/heatmap", nil]], calls
-    end
-  ensure
-    if old_login
-      ENV["REPOBAR_FORGEJO_LOGIN"] = old_login
-    else
-      ENV.delete("REPOBAR_FORGEJO_LOGIN")
+    cases.each do |payload, expected|
+      assert_equal expected, RepoBar::Core::GitHub.workflow_status(payload)
     end
   end
 

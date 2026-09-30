@@ -7,7 +7,7 @@ class StoreTest < Minitest::Test
   def test_pin_projects_cached_repo_immediately
     config_path = write_test_config
     config = RepoBar::Core::Config.load_config(config_path)
-    snapshot = RepoBar::Runtime::State.build_snapshot(config, [sample_repo(name: "openclaw/openclaw")], [], { provider: "github" }, Time.now.utc)
+    snapshot = RepoBar::Runtime::State.build_snapshot(config, [sample_repo(name: "openclaw/openclaw")], [], { login: "pvd" }, Time.now.utc)
     RepoBar::Runtime::State.write_snapshot(config, snapshot)
 
     RepoBar::Runtime::Store.pin_repo(config_path, "OpenClaw/OpenClaw")
@@ -21,7 +21,7 @@ class StoreTest < Minitest::Test
   def test_unpin_projects_cached_repo_immediately
     config_path = write_test_config(repoList: { pinnedRepositories: ["openclaw/openclaw"] })
     config = RepoBar::Core::Config.load_config(config_path)
-    snapshot = RepoBar::Runtime::State.build_snapshot(config, [sample_repo(name: "openclaw/openclaw")], [], { provider: "github" }, Time.now.utc)
+    snapshot = RepoBar::Runtime::State.build_snapshot(config, [sample_repo(name: "openclaw/openclaw")], [], { login: "pvd" }, Time.now.utc)
     RepoBar::Runtime::State.write_snapshot(config, snapshot)
 
     RepoBar::Runtime::Store.unpin_repo(config_path, "openclaw/openclaw")
@@ -40,7 +40,7 @@ class StoreTest < Minitest::Test
       config,
       names.map { |name| sample_repo(name: name) },
       [],
-      { provider: "github" },
+      { login: "pvd" },
       Time.now.utc
     )
     RepoBar::Runtime::State.write_snapshot(config, snapshot)
@@ -56,7 +56,7 @@ class StoreTest < Minitest::Test
   def test_hide_removes_repo_from_projected_view
     config_path = write_test_config(repoList: { pinnedRepositories: ["openclaw/openclaw"] })
     config = RepoBar::Core::Config.load_config(config_path)
-    snapshot = RepoBar::Runtime::State.build_snapshot(config, [sample_repo(name: "openclaw/openclaw")], [], { provider: "github" }, Time.now.utc)
+    snapshot = RepoBar::Runtime::State.build_snapshot(config, [sample_repo(name: "openclaw/openclaw")], [], { login: "pvd" }, Time.now.utc)
     RepoBar::Runtime::State.write_snapshot(config, snapshot)
 
     RepoBar::Runtime::Store.hide_repo(config_path, "openclaw/openclaw")
@@ -70,7 +70,7 @@ class StoreTest < Minitest::Test
   def test_pin_search_result_inserts_pending_repo
     config_path = write_test_config
     config = RepoBar::Core::Config.load_config(config_path)
-    RepoBar::Runtime::State.write_snapshot(config, RepoBar::Runtime::State.build_snapshot(config, [], [], { provider: "github" }, Time.now.utc))
+    RepoBar::Runtime::State.write_snapshot(config, RepoBar::Runtime::State.build_snapshot(config, [], [], { login: "pvd" }, Time.now.utc))
     search = RepoBar::Runtime::Store.start_search(config_path, "solverforge", limit: 5)
     RepoBar::Runtime::Store.finish_search(config_path, search[:requestId], "solverforge", results: [sample_repo(name: "solverforge/solverforge")])
 
@@ -83,76 +83,7 @@ class StoreTest < Minitest::Test
     assert_equal true, repo[:pending]
   end
 
-  def test_provider_switch_projects_provider_without_changing_default
-    config_path = write_test_config
-
-    RepoBar::Runtime::Store.set_provider(config_path, "forgejo")
-
-    saved = RepoBar::Core::Config.load_config(config_path)
-    snapshot = RepoBar::Runtime::State.read_snapshot(saved)
-    assert_equal "forgejo", saved.dig(:github, :provider)
-    assert_equal "forgejo", snapshot.dig(:view, :summary, :provider)
-    assert_equal "github", RepoBar::Core::Config.default_config.dig(:github, :provider)
-  end
-
-  def test_provider_switch_restores_cached_provider_snapshot
-    config_path = write_test_config
-    github_config = RepoBar::Core::Config.load_config(config_path)
-    forgejo_config = RepoBar::Runtime::Store.provider_config(github_config, "forgejo")
-    forgejo_snapshot = RepoBar::Runtime::State.build_snapshot(
-      forgejo_config,
-      [sample_repo(name: "pvd/fizzy")],
-      [],
-      { provider: "forgejo", login: "forgejo:public" },
-      Time.now.utc
-    )
-    RepoBar::Runtime::State.write_provider_snapshot(forgejo_config, forgejo_snapshot, "forgejo")
-
-    RepoBar::Runtime::Store.set_provider(config_path, "forgejo")
-
-    saved = RepoBar::Core::Config.load_config(config_path)
-    snapshot = RepoBar::Runtime::State.read_snapshot(saved)
-    assert_equal "forgejo", snapshot.dig(:view, :summary, :provider)
-    assert_equal ["pvd/fizzy"], snapshot.dig(:view, :repositories).map { |repo| repo[:fullName] }
-  end
-
-  def test_stale_refresh_does_not_overwrite_switched_provider_snapshot
-    config_path = write_test_config(settings: { showContributionHeader: false })
-    github_config = RepoBar::Core::Config.load_config(config_path)
-    RepoBar::Runtime::State.write_snapshot(
-      github_config,
-      RepoBar::Runtime::State.build_snapshot(github_config, [sample_repo(name: "old/github")], [], { provider: "github" }, Time.now.utc)
-    )
-    forgejo_config = RepoBar::Runtime::Store.provider_config(github_config, "forgejo")
-    forgejo_snapshot = RepoBar::Runtime::State.build_snapshot(
-      forgejo_config,
-      [sample_repo(name: "pvd/fizzy")],
-      [],
-      { provider: "forgejo", login: "forgejo:public" },
-      Time.now.utc
-    )
-    RepoBar::Runtime::State.write_provider_snapshot(forgejo_config, forgejo_snapshot, "forgejo")
-
-    RepoBar::Core::GitHub.stub(:auth_status, ->(config) { { authenticated: true, provider: config.dig(:github, :provider), login: "pvd" } }) do
-      RepoBar::Core::GitHub.stub(:fetch_repositories, ->(_config) {
-        RepoBar::Runtime::Store.set_provider(config_path, "forgejo")
-        [sample_repo(name: "late/github")]
-      }) do
-        RepoBar::Core::LocalGit.stub(:scan, ->(_config) { [] }) do
-          RepoBar::Runtime::Store.refresh_effect(config_path)
-        end
-      end
-    end
-
-    saved = RepoBar::Core::Config.load_config(config_path)
-    active_snapshot = RepoBar::Runtime::State.read_snapshot(saved)
-    github_snapshot = RepoBar::Runtime::State.read_provider_snapshot(saved, "github")
-    assert_equal "forgejo", active_snapshot.dig(:view, :summary, :provider)
-    assert_equal ["pvd/fizzy"], active_snapshot.dig(:view, :repositories).map { |repo| repo[:fullName] }
-    assert_equal ["late/github"], github_snapshot.dig(:view, :repositories).map { |repo| repo[:fullName] }
-  end
-
-  def test_stale_same_provider_refresh_preserves_current_pinned_order_in_provider_cache
+  def test_late_refresh_reprojects_through_newer_pinned_order
     config_path = write_test_config(
       settings: { showContributionHeader: false },
       repoList: { pinnedRepositories: ["one/one", "two/two", "three/three"] }
@@ -164,27 +95,75 @@ class StoreTest < Minitest::Test
         config,
         ["one/one", "two/two", "three/three"].map { |name| sample_repo(name: name) },
         [],
-        { provider: "github" },
+        { login: "pvd" },
         Time.now.utc
       )
     )
 
-    RepoBar::Core::GitHub.stub(:auth_status, ->(loaded_config) { { authenticated: true, provider: loaded_config.dig(:github, :provider), login: "pvd" } }) do
-      RepoBar::Core::GitHub.stub(:fetch_repositories, ->(_loaded_config) {
+    RepoBar::Core::GitHub.stub(:auth_status, ->(*) { { authenticated: true, login: "pvd" } }) do
+      RepoBar::Core::GitHub.stub(:fetch_repositories, ->(*) {
         RepoBar::Runtime::Store.move_pinned_repo(config_path, "three/three", 0)
         ["one/one", "two/two", "three/three"].map { |name| sample_repo(name: name) }
       }) do
-        RepoBar::Core::LocalGit.stub(:scan, ->(_loaded_config) { [] }) do
+        RepoBar::Core::LocalGit.stub(:scan, ->(*) { [] }) do
           RepoBar::Runtime::Store.refresh_effect(config_path)
         end
       end
     end
 
     current = RepoBar::Core::Config.load_config(config_path)
-    active_snapshot = RepoBar::Runtime::State.read_snapshot(current)
-    provider_snapshot = RepoBar::Runtime::State.read_provider_snapshot(current, "github")
-    assert_equal ["three/three", "one/one", "two/two"], active_snapshot.dig(:view, :repositories).map { |repo| repo[:fullName] }
-    assert_equal ["three/three", "one/one", "two/two"], provider_snapshot.dig(:view, :repositories).map { |repo| repo[:fullName] }
+    names = RepoBar::Runtime::State.read_snapshot(current).dig(:view, :repositories).map { |repo| repo[:fullName] }
+    assert_equal ["three/three", "one/one", "two/two"], names
+  end
+
+  def test_late_refresh_does_not_resurrect_repositories_hidden_mid_refresh
+    config_path = write_test_config(settings: { showContributionHeader: false })
+    config = RepoBar::Core::Config.load_config(config_path)
+    RepoBar::Runtime::State.write_snapshot(
+      config,
+      RepoBar::Runtime::State.build_snapshot(config, [sample_repo(name: "one/one"), sample_repo(name: "two/two")], [], { login: "pvd" }, Time.now.utc)
+    )
+
+    RepoBar::Core::GitHub.stub(:auth_status, ->(*) { { authenticated: true, login: "pvd" } }) do
+      RepoBar::Core::GitHub.stub(:fetch_repositories, ->(*) {
+        RepoBar::Runtime::Store.hide_repo(config_path, "two/two")
+        [sample_repo(name: "one/one"), sample_repo(name: "two/two")]
+      }) do
+        RepoBar::Core::LocalGit.stub(:scan, ->(*) { [] }) do
+          RepoBar::Runtime::Store.refresh_effect(config_path)
+        end
+      end
+    end
+
+    current = RepoBar::Core::Config.load_config(config_path)
+    snapshot = RepoBar::Runtime::State.read_snapshot(current)
+    assert_equal ["one/one"], snapshot.dig(:view, :repositories).map { |repo| repo[:fullName] }
+    assert_includes current.dig(:repoList, :hiddenRepositories), "two/two"
+  end
+
+  def test_late_refresh_keeps_newer_pinned_repo_that_is_absent_from_fresh_rows
+    config_path = write_test_config(settings: { showContributionHeader: false })
+    config = RepoBar::Core::Config.load_config(config_path)
+    RepoBar::Runtime::State.write_snapshot(
+      config,
+      RepoBar::Runtime::State.build_snapshot(config, [sample_repo(name: "one/one")], [], { login: "pvd" }, Time.now.utc)
+    )
+
+    RepoBar::Core::GitHub.stub(:auth_status, ->(*) { { authenticated: true, login: "pvd" } }) do
+      RepoBar::Core::GitHub.stub(:fetch_repositories, ->(*) {
+        RepoBar::Runtime::Store.pin_repo(config_path, "late/late")
+        [sample_repo(name: "one/one")]
+      }) do
+        RepoBar::Core::LocalGit.stub(:scan, ->(*) { [] }) do
+          RepoBar::Runtime::Store.refresh_effect(config_path)
+        end
+      end
+    end
+
+    current = RepoBar::Core::Config.load_config(config_path)
+    repos = RepoBar::Runtime::State.read_snapshot(current).dig(:view, :repositories)
+    assert_equal ["late/late", "one/one"], repos.map { |repo| repo[:fullName] }
+    assert_equal true, repos.first[:pending]
   end
 
   def test_failed_refresh_keeps_the_last_confirmed_repository_snapshot
@@ -192,10 +171,10 @@ class StoreTest < Minitest::Test
     config = RepoBar::Core::Config.load_config(config_path)
     RepoBar::Runtime::State.write_snapshot(
       config,
-      RepoBar::Runtime::State.build_snapshot(config, [sample_repo(name: "stable/repository")], [], { provider: "github" }, Time.now.utc)
+      RepoBar::Runtime::State.build_snapshot(config, [sample_repo(name: "stable/repository")], [], { login: "pvd" }, Time.now.utc)
     )
 
-    RepoBar::Core::GitHub.stub(:auth_status, ->(*) { { authenticated: true, provider: "github", login: "pvd" } }) do
+    RepoBar::Core::GitHub.stub(:auth_status, ->(*) { { authenticated: true, login: "pvd" } }) do
       RepoBar::Core::GitHub.stub(:fetch_repositories, ->(*) { raise "GitHub HTTP 503: service unavailable" }) do
         assert_raises(RuntimeError) { RepoBar::Runtime::Store.refresh_effect(config_path) }
       end
@@ -203,6 +182,22 @@ class StoreTest < Minitest::Test
 
     snapshot = RepoBar::Runtime::State.read_snapshot(config)
     assert_equal ["stable/repository"], snapshot.dig(:view, :repositories).map { |repo| repo[:fullName] }
+  end
+
+  def test_refresh_writes_only_the_single_snapshot_file
+    config_path = write_test_config(settings: { showContributionHeader: false })
+    RepoBar::Core::GitHub.stub(:auth_status, ->(*) { { authenticated: true, login: "pvd" } }) do
+      RepoBar::Core::GitHub.stub(:fetch_repositories, ->(*) { [sample_repo(name: "one/one")] }) do
+        RepoBar::Core::LocalGit.stub(:scan, ->(*) { [] }) do
+          RepoBar::Runtime::Store.refresh_effect(config_path)
+        end
+      end
+    end
+
+    config = RepoBar::Core::Config.load_config(config_path)
+    state_dir = RepoBar::Runtime::State.state_dir(config)
+    refute Dir.exist?(File.join(state_dir, "providers")), "GitHub-only state has no provider snapshot directory"
+    assert_equal ["snapshot.json", "state-event.json"], Dir.children(state_dir).sort
   end
 
   def test_daemon_refresh_requests_coalesce_while_refresh_is_running
@@ -287,6 +282,16 @@ class StoreTest < Minitest::Test
     end
   end
 
+  def test_cli_rejects_removed_provider_command
+    config_path = write_test_config
+
+    _out, err = capture_io do
+      assert_equal 1, RepoBar::CLI.run(["provider", "github", "--config", config_path])
+    end
+
+    assert_match(/Unknown command: provider/, err)
+  end
+
   def test_daemon_refresh_action_requests_a_coalesced_refresh
     config_path = write_test_config
     refresh_state = { thread: nil, pending: false, mutex: Mutex.new }
@@ -298,6 +303,17 @@ class StoreTest < Minitest::Test
     end
 
     assert_equal [[config_path, refresh_state]], calls
+  end
+
+  def test_daemon_rejects_removed_set_provider_action
+    config_path = write_test_config
+    refresh_state = { thread: nil, pending: false, mutex: Mutex.new }
+
+    error = assert_raises(ArgumentError) do
+      RepoBar::Runtime::Daemon.handle_action(config_path, { type: "set_provider", provider: "forgejo" }, Mutex.new, [], refresh_state)
+    end
+
+    assert_match(/Unknown daemon action: set_provider/, error.message)
   end
 
   def test_waybar_refresh_dispatches_the_daemon_action
@@ -313,15 +329,5 @@ class StoreTest < Minitest::Test
     end
 
     assert_equal "refresh", captured[:type]
-  end
-
-  private
-
-  def write_test_config(overrides = {})
-    dir = Dir.mktmpdir
-    path = File.join(dir, "config.json")
-    config = RepoBar::Core::Config.normalize_config({ runtime: { stateDir: File.join(dir, "state") }, localProjects: { roots: [] } }.merge(overrides))
-    RepoBar::Core::Config.save_config(config, path)
-    path
   end
 end

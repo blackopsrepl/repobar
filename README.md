@@ -4,7 +4,7 @@
   <img src="docs/assets/repobar-mascot.png" alt="RepoBar Linux mascot" width="240">
 </p>
 
-RepoBar Linux is a SolverForge Linux companion for watching GitHub.com and local Forgejo repository pressure from Waybar. It keeps the product idea from [steipete](https://github.com/steipete)'s original [RepoBar](https://github.com/steipete/RepoBar), but the implementation is native to this desktop stack: Ruby backend, cached JSON state, a resident action daemon, a compact Waybar chip, and one QuickShell panel.
+RepoBar Linux is a SolverForge Linux companion for watching GitHub.com repository pressure from Waybar. It keeps the product idea from [steipete](https://github.com/steipete)'s original [RepoBar](https://github.com/steipete/RepoBar), but the implementation is native to this desktop stack: Ruby backend, cached JSON state, a resident action daemon, a compact Waybar chip, and one QuickShell panel.
 
 ## Screenshots
 
@@ -27,30 +27,30 @@ RepoBar Linux is a SolverForge Linux companion for watching GitHub.com and local
 - Runtime state: `~/.local/state/repobar/`
 - Local release gate: `bin/release-check`
 
-RepoBar has one product UI: QuickShell. Waybar is only a launcher and cached-state renderer. The QuickShell panel reads `snapshot.json`, `ui.json`, `search.json`, and `state-event.json`; it never calls GitHub.com, Forgejo, or `git` directly.
+RepoBar has one product UI: QuickShell. Waybar is only a launcher and cached-state renderer. The QuickShell panel reads `snapshot.json`, `ui.json`, `search.json`, and `state-event.json`; it never calls GitHub.com or `git` directly.
 
 ## What It Shows
 
-- Active provider, account, repository count, PR count, issue count, and stale/loading state.
-- GitHub or Forgejo account activity heatmap when `settings.showContributionHeader` is enabled.
+- GitHub account, repository count, PR count, issue count, and stale/loading state.
+- GitHub account activity heatmap when `settings.showContributionHeader` is enabled.
 - Repository cards with avatar, description, CI state, open PRs, open issues, stars, last push, release/activity summary, local branch state, dirty count, and activity heatmap.
 - A reader panel for cached PR and issue previews, including body excerpts, authors, update age, labels, draft state, and links.
 - Search results that can be opened or pinned without a full refresh round trip.
 - Icon controls for open, read, refresh, pin/unpin, and hide, plus a drag handle on pinned repo cards. Pinned repos are uncapped, preserve the configured order, project into cached state immediately, and are later hydrated by the daemon.
+- A triage mode: a cross-repo inbox of every cached open PR and issue with an attention score, an action line, explained signals (CI failing, local dirty, priority/blocked/bug/needs-review labels, unanswered, draft, staleness), a repo rail, toned label chips, and a full-body reader, plus a repo fact grid per item. Nothing in triage fetches.
 - Waybar classes for `healthy`, `loading`, `stale`, `error`, `has-work`, `has-ci-failures`, `local-dirty`, and `rate-limited`.
 
 ## Runtime Flow
 
-`repobar daemon` owns effects and state transitions. CLI commands and QuickShell actions dispatch to the daemon over `daemon.sock`; the daemon performs refreshes, search jobs, provider switches, pin/unpin/hide/show mutations, pinned repo moves, and state projection.
+`repobar daemon` owns effects and state transitions. CLI commands and QuickShell actions dispatch to the daemon over `daemon.sock`; the daemon performs refreshes, search jobs, pin/unpin/hide/show mutations, pinned repo moves, and state projection.
 
-Provider switches are cache-first. `repobar provider github|forgejo` saves the current provider snapshot, rewrites config, resets search state, restores the target provider snapshot immediately when one exists, then asks the daemon for a background refresh. Refresh requests are coalesced: one refresh may run and one follow-up may be pending, but repeated UI actions do not stack unbounded refresh threads. Timer ticks skip queuing a pending follow-up while a refresh is already alive. If a refresh started under an older provider/config identity finishes after the user has switched providers, it updates only that provider's saved cache and cannot overwrite the active `snapshot.json`; if the identity change is same-provider visibility/order state, the provider cache is re-projected through the newer pinned/hidden config before it is saved.
+RepoBar is GitHub-only: one REST/GraphQL client, one snapshot, no provider cache layer. A refresh that started under an older config identity (pinned order, hidden/visible repositories, local roots, state dir) is re-projected through the newer config before it is written, so a pin move or hide made mid-refresh cannot be overwritten — and a repository hidden mid-refresh is not resurrected.
 
 `repoList.displayLimit` caps only unpinned repository extras. Every configured pinned repository is selected ahead of that limit, ordered by `repoList.pinnedRepositories`, and can be reordered with either the QuickShell drag handle or `repobar pin move`.
 
 Refresh writes:
 
 - `snapshot.json`: raw repositories, local checkouts, account data, and presenter-ready `view`.
-- `providers/github.json` and `providers/forgejo.json`: provider-specific snapshot caches used for instant provider switching.
 - `state-event.json`: stable watched file that tells QuickShell to reload state.
 
 UI commands write:
@@ -64,11 +64,9 @@ Network cache files live under `~/.local/state/repobar/cache/`:
 - `graphql.json`
 - `rate_limits.json`
 
-## Providers
+## GitHub Access
 
-GitHub.com is the default provider and uses `gh auth token`, `REPOBAR_GITHUB_TOKEN`, or `GITHUB_TOKEN`.
-
-Forgejo mode targets `http://vigilance:3002/api/v1`. Public reads work without a token; private reads can use `REPOBAR_FORGEJO_TOKEN`, `FORGEJO_TOKEN`, or `GITEA_TOKEN`. Forgejo account heatmaps use `REPOBAR_FORGEJO_LOGIN` when the public login is `forgejo:public`, then fall back to `$USER`.
+RepoBar speaks the GitHub.com REST and GraphQL APIs and nothing else. It uses `gh auth token`, `REPOBAR_GITHUB_TOKEN`, or `GITHUB_TOKEN` (`github.authSource` = `gh` or `env`). No second provider exists, and a leftover non-https host or provider key in `config.json` normalizes back to the GitHub defaults rather than loading a dead endpoint.
 
 ## Desktop Autostart
 
@@ -77,7 +75,7 @@ RepoBar has two separate runtime pieces:
 - `repobar daemon --config ~/.repobar/config.json` refreshes repository state, serves actions, and writes cached snapshots.
 - `repobar waybar render --config ~/.repobar/config.json` reads cached state and returns Waybar JSON.
 
-Waybar does not fetch GitHub, Forgejo, or local repository state by itself. If the daemon is not running after login or reboot, the Waybar chip can still render stale cached state. A desktop integration should start and supervise the daemon at session startup.
+Waybar does not fetch GitHub or local repository state by itself. If the daemon is not running after login or reboot, the Waybar chip can still render stale cached state. A desktop integration should start and supervise the daemon at session startup.
 
 On SolverForge Linux, the managed Waybar integration starts companion daemons through `solverforge-waybar-companions-start`, launched from Sway `exec_always` beside Waybar. Edit that managed default layer, not symlinked files under `~/.config/waybar`.
 
@@ -107,11 +105,7 @@ bin/repobar status
 bin/repobar login
 bin/repobar logout
 bin/repobar config init
-bin/repobar config github
-bin/repobar config forgejo
 bin/repobar config validate
-bin/repobar provider github
-bin/repobar provider forgejo
 bin/repobar refresh
 bin/repobar daemon
 bin/repobar daemon --once
@@ -160,6 +154,7 @@ bin/repobar open finder openclaw/openclaw
 bin/repobar open terminal openclaw/openclaw
 bin/repobar panel
 bin/repobar ui open
+bin/repobar ui triage
 bin/repobar ui close
 bin/repobar ui toggle
 bin/repobar ui status --format json --pretty
