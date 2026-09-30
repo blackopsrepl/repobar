@@ -119,6 +119,62 @@ module RepoBar
         State.read_search_state(config)
       end
 
+      def start_thread(config_path, item_id, repository, number, kind, title: nil, url: nil)
+        config = Core::Config.load_config(config_path)
+        clean_id = item_id.to_s.strip.downcase
+        raise ArgumentError, "Thread item id required as owner/name#number." unless clean_id.match?(%r{\A[^/\s]+/[^/\s]+#\d+\z})
+        raise ArgumentError, "Thread kind must be issue or pr." unless %w[issue pr].include?(kind.to_s)
+        expected_id = "#{repository.to_s.downcase}##{number}"
+        raise ArgumentError, "Thread identity does not match repository and number." unless clean_id == expected_id && number.to_i.positive?
+        clean_kind = kind.to_s
+
+        state = {
+          status: "loading",
+          itemId: clean_id,
+          repoFullName: repository.to_s,
+          number: number.to_s,
+          kind: clean_kind,
+          title: title.to_s,
+          url: url.to_s,
+          requestId: SecureRandom.hex(8),
+          entries: [],
+          truncated: false,
+          error: "",
+          updatedAt: timestamp
+        }
+        State.with_thread_lock(config) do
+          State.write_thread_state(config, state)
+          State.read_thread_state(config)
+        end
+      end
+
+      def finish_thread(config_path, request_id, entries:, truncated: false, error: nil)
+        config = Core::Config.load_config(config_path)
+        State.with_thread_lock(config) do
+          current = State.read_thread_state(config)
+          return current if current[:requestId].to_s != request_id.to_s
+
+          state = current.merge(
+            status: error.to_s.empty? ? "ready" : "error",
+            entries: Array(entries),
+            truncated: truncated ? true : false,
+            error: error.to_s,
+            updatedAt: timestamp
+          )
+          State.write_thread_state(config, state)
+          State.read_thread_state(config)
+        end
+      end
+
+      # Read the cached thread for an item without touching the network. The panel
+      # uses this to show a thread it has already fetched while a refresh runs.
+      def cached_thread(config, item_id)
+        state = State.read_thread_state(config)
+        return nil if state[:itemId].to_s != item_id.to_s.downcase
+
+        state
+      end
+
       def commit_refresh(config, repositories, local_repositories, account)
         write_projection(config, State.build_snapshot(config, repositories, local_repositories, account))
       end
@@ -150,6 +206,22 @@ module RepoBar
         finish_search(config_path, request_id, query, results: rows)
       rescue StandardError => e
         finish_search(config_path, request_id, query, error: e.message)
+      end
+
+      # Reuse fresh REST responses locally; expired entries are revalidated with
+      # If-None-Match when GitHub supplied an ETag.
+      def thread_effect(config_path, item_id, repository, number, kind, request_id, limit)
+        config = Core::Config.load_config(config_path)
+        token = Core::GitHub.access_token(config)
+        owner, name = repository.to_s.split("/", 2)
+        fetch_limit = limit.to_i.positive? ? limit.to_i + 1 : nil
+        entries = Core::GitHub.item_thread(config, token, owner, name, number, kind, fetch_limit)
+        truncated = limit.to_i.positive? && entries.length > limit.to_i
+        entries = entries.last(limit.to_i) if truncated
+        view = Presenter.thread_view(entries: entries)
+        finish_thread(config_path, request_id, entries: view[:entries], truncated: truncated)
+      rescue StandardError => e
+        finish_thread(config_path, request_id, entries: [], error: e.message)
       end
 
       def signal_waybar(config)

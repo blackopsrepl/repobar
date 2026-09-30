@@ -144,6 +144,71 @@ module RepoBar
         []
       end
 
+      def item_thread(config, token, owner, name, number, kind, limit = nil)
+        max = limit.nil? ? nil : [limit.to_i, 0].max
+        return [] if max == 0
+
+        # A PR's conversation spans three endpoints: general issue comments,
+        # review verdicts, and inline review comments. Issues only have the first.
+        entries = issue_comments(config, token, owner, name, number)
+        if kind.to_s == "pr"
+          entries += pull_reviews(config, token, owner, name, number)
+          entries += pull_review_comments(config, token, owner, name, number)
+        end
+
+        # Keep the newest `max` of the merged conversation, then restore
+        # chronological order so it reads as a thread.
+        entries = entries.sort_by { |entry| [entry[:createdAt].to_s, entry[:id].to_i] }
+        max ? entries.last(max) : entries
+      end
+
+      def thread_pages(config, token, path)
+        items = []
+        while path
+          response = request(config, path, token: token)
+          items.concat(Array(response.data))
+          next_link = response.headers["link"].to_s.split(",").find { |link| link.match?(/;\s*rel="next"/) }
+          path = next_link && URI(next_link[/<([^>]+)>/, 1]).request_uri
+        end
+        items
+      end
+
+      def issue_comments(config, token, owner, name, number)
+        thread_pages(config, token, "/repos/#{owner}/#{name}/issues/#{number}/comments?per_page=100")
+          .map { |item| map_thread_entry(item, "comment") }
+      end
+
+      def pull_reviews(config, token, owner, name, number)
+        thread_pages(config, token, "/repos/#{owner}/#{name}/pulls/#{number}/reviews?per_page=100")
+          .map { |item| map_thread_entry(item, "review", date_key: :submitted_at) }
+      end
+
+      def pull_review_comments(config, token, owner, name, number)
+        thread_pages(config, token, "/repos/#{owner}/#{name}/pulls/#{number}/comments?per_page=100")
+          .map { |item| map_thread_entry(item, "review-comment") }
+      end
+
+      def map_thread_entry(item, kind, date_key: :created_at)
+        user = item[:user] || item["user"] || {}
+        {
+          id: (item[:id] || item["id"]).to_i,
+          kind: kind,
+          author: user[:login] || user["login"],
+          authorAvatarUrl: user[:avatar_url] || user["avatar_url"],
+          authorUrl: user[:html_url] || user["html_url"],
+          body: item[:body] || item["body"],
+          createdAt: item[date_key] || item[date_key.to_s] || item[:created_at] || item["created_at"],
+          url: item[:html_url] || item["html_url"],
+          state: item[:state] || item["state"],
+          path: item[:path] || item["path"],
+          # Outdated comments can retain an original source line. Diff positions
+          # are offsets within a patch, not source line numbers.
+          line: item[:line] || item["line"] || item[:original_line] || item["original_line"],
+          side: item[:side] || item["side"],
+          inReplyToId: (item[:in_reply_to_id] || item["in_reply_to_id"]).to_i
+        }
+      end
+
       def releases(config, token, owner, name, limit)
         response = request(config, "/repos/#{owner}/#{name}/releases?per_page=#{limit}", token: token)
         Array(response.data).first(limit).map { |item| map_release_item(item) }
@@ -372,6 +437,8 @@ module RepoBar
           number: item[:number] || item["number"],
           title: item[:title] || item["title"],
           author: item.dig(:user, :login) || item.dig("user", "login"),
+          authorAvatarUrl: item.dig(:user, :avatar_url) || item.dig("user", "avatar_url"),
+          authorUrl: item.dig(:user, :html_url) || item.dig("user", "html_url"),
           state: item[:state] || item["state"],
           updatedAt: item[:updated_at] || item["updated_at"],
           url: item[:html_url] || item["html_url"],
@@ -386,6 +453,8 @@ module RepoBar
           number: item[:number] || item["number"],
           title: item[:title] || item["title"],
           author: item.dig(:user, :login) || item.dig("user", "login"),
+          authorAvatarUrl: item.dig(:user, :avatar_url) || item.dig("user", "avatar_url"),
+          authorUrl: item.dig(:user, :html_url) || item.dig("user", "html_url"),
           state: item[:state] || item["state"],
           draft: !!(item[:draft] || item["draft"]),
           updatedAt: item[:updated_at] || item["updated_at"],

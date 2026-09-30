@@ -126,6 +126,7 @@ module RepoBar
         result = nil
         refresh_needed = false
         search_job = nil
+        thread_job = nil
 
         mutex.synchronize do
           case type
@@ -155,6 +156,18 @@ module RepoBar
             search_job = [result[:query], action[:limit].to_i.positive? ? action[:limit].to_i : 10, result[:requestId]]
           when "search_select"
             result = Store.select_search_result(config_path, action[:fullName])
+          when "thread_start"
+            limit = action[:limit].to_i.positive? ? action[:limit].to_i : nil
+            result = Store.start_thread(
+              config_path,
+              action[:itemId].to_s,
+              action[:repository].to_s,
+              action[:number].to_s,
+              action[:kind].to_s,
+              title: action[:title],
+              url: action[:url]
+            )
+            thread_job = [result[:itemId], result[:repoFullName], result[:number], result[:kind], result[:requestId], limit]
           when "ping"
             result = { status: "ok" }
           else
@@ -164,6 +177,7 @@ module RepoBar
 
         request_refresh(config_path, refresh_state) if refresh_needed
         search_threads << start_search_thread(config_path, *search_job) if search_job
+        search_threads << start_thread_fetch(config_path, *thread_job) if thread_job
         result
       end
 
@@ -206,6 +220,14 @@ module RepoBar
           Store.search_effect(config_path, query, limit, request_id)
         rescue StandardError => e
           warn "repobar daemon search error: #{e.message}"
+        end
+      end
+
+      def start_thread_fetch(config_path, item_id, repository, number, kind, request_id, limit)
+        Thread.new do
+          Store.thread_effect(config_path, item_id, repository, number, kind, request_id, limit)
+        rescue StandardError => e
+          warn "repobar daemon thread error: #{e.message}"
         end
       end
 

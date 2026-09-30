@@ -111,6 +111,8 @@ module RepoBar
           number: item[:number],
           title: item[:title],
           author: item[:author],
+          authorAvatarUrl: item[:authorAvatarUrl],
+          authorUrl: item[:authorUrl],
           draft: !!item[:draft],
           updatedAt: updated_at,
           updatedText: item[:updatedText],
@@ -289,6 +291,56 @@ module RepoBar
 
       def repo_work_count(repo)
         Array(repo[:pulls]).length + Array(repo[:issues]).length
+      end
+
+      # A thread is fetched on demand and lives in thread.json, so the presenter
+      # only shapes whatever the caller hands it: entries plus a reading summary.
+      def thread_view(thread_state, now = Time.now)
+        return nil unless thread_state
+
+        entries = Array(thread_state[:entries]).map { |entry| thread_entry_view(entry, now) }
+        participants = entries.map { |entry| entry[:author] }.reject { |name| name.to_s.empty? }.uniq
+        {
+          status: thread_state[:status].to_s,
+          itemId: thread_state[:itemId].to_s,
+          repoFullName: thread_state[:repoFullName].to_s,
+          number: thread_state[:number].to_s,
+          kind: thread_state[:kind].to_s,
+          title: thread_state[:title].to_s,
+          url: thread_state[:url].to_s,
+          error: thread_state[:error].to_s,
+          updatedText: Core::Format.relative_time(thread_state[:updatedAt], now),
+          total: entries.length,
+          commentCount: entries.count { |entry| entry[:kind] == "comment" },
+          reviewCount: entries.count { |entry| entry[:kind] == "review" },
+          reviewCommentCount: entries.count { |entry| entry[:kind] == "review-comment" },
+          participantCount: participants.length,
+          participants: participants.first(8),
+          truncated: !!thread_state[:truncated],
+          entries: entries
+        }
+      end
+
+      def thread_entry_view(entry, now)
+        body = entry[:body].to_s.gsub(/\r\n?/, "\n").strip
+        {
+          id: entry[:id].to_i,
+          kind: entry[:kind].to_s,
+          author: entry[:author].to_s,
+          authorAvatarUrl: entry[:authorAvatarUrl],
+          authorUrl: entry[:authorUrl],
+          body: body,
+          bodyPreview: readable_body(entry[:body]),
+          bodyLength: body.length,
+          createdAt: entry[:createdAt],
+          createdText: Core::Format.relative_time(entry[:createdAt], now),
+          url: entry[:url],
+          state: entry[:state].to_s,
+          path: entry[:path],
+          line: entry[:line],
+          side: entry[:side].to_s,
+          inReplyToId: entry[:inReplyToId].to_i
+        }
       end
 
       def summary_view(_config, snapshot, repos, now)
@@ -499,6 +551,8 @@ module RepoBar
           number: item[:number],
           title: item[:title].to_s,
           author: item[:author].to_s,
+          authorAvatarUrl: item[:authorAvatarUrl],
+          authorUrl: item[:authorUrl],
           body: readable_body(item[:body]),
           bodyFull: readable_full_body(item[:body]),
           state: item[:state].to_s,

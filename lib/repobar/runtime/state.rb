@@ -11,6 +11,7 @@ module RepoBar
       SNAPSHOT_FILE = "snapshot.json"
       UI_STATE_FILE = "ui.json"
       SEARCH_STATE_FILE = "search.json"
+      THREAD_STATE_FILE = "thread.json"
       STATE_EVENT_FILE = "state-event.json"
       DAEMON_LOCK_FILE = "daemon.lock"
       DAEMON_SOCKET_FILE = "daemon.sock"
@@ -36,6 +37,12 @@ module RepoBar
 
       def state_event_path(config)
         File.join(state_dir(config), STATE_EVENT_FILE)
+      end
+
+      # Threads live in their own file, not in snapshot.json: the panel re-reads
+      # the snapshot on every write, and a full conversation can be megabytes.
+      def thread_state_path(config)
+        File.join(state_dir(config), THREAD_STATE_FILE)
       end
 
       def daemon_socket_path(config)
@@ -113,6 +120,29 @@ module RepoBar
         notify_state_change(config)
       end
 
+      def with_thread_lock(config)
+        ensure_state_dir(config)
+        File.open(lock_path(config, "thread.lock"), File::RDWR | File::CREAT, 0o600) do |file|
+          file.flock(File::LOCK_EX)
+          yield
+        end
+      end
+
+      def read_thread_state(config)
+        path = thread_state_path(config)
+        return default_thread_state unless File.file?(path)
+
+        normalize_thread_state(JSON.parse(File.read(path), symbolize_names: true))
+      rescue JSON::ParserError
+        default_thread_state
+      end
+
+      def write_thread_state(config, thread_state)
+        ensure_state_dir(config)
+        atomic_write_json(thread_state_path(config), normalize_thread_state(thread_state))
+        notify_state_change(config)
+      end
+
       def default_ui_state
         {
           open: false,
@@ -129,6 +159,23 @@ module RepoBar
           requestId: "",
           selectedFullName: "",
           results: [],
+          error: "",
+          updatedAt: ""
+        }
+      end
+
+      def default_thread_state
+        {
+          status: "idle",
+          itemId: "",
+          repoFullName: "",
+          number: "",
+          kind: "",
+          title: "",
+          url: "",
+          requestId: "",
+          entries: [],
+          truncated: false,
           error: "",
           updatedAt: ""
         }
@@ -159,11 +206,31 @@ module RepoBar
         }
       end
 
+      def normalize_thread_state(thread_state)
+        state = default_thread_state.merge((thread_state || {}).transform_keys(&:to_sym))
+        status = %w[idle loading ready error].include?(state[:status].to_s) ? state[:status].to_s : "idle"
+        {
+          status: status,
+          itemId: state[:itemId].to_s,
+          repoFullName: state[:repoFullName].to_s,
+          number: state[:number].to_s,
+          kind: state[:kind].to_s,
+          title: state[:title].to_s,
+          url: state[:url].to_s,
+          requestId: state[:requestId].to_s,
+          entries: Array(state[:entries]),
+          truncated: !!state[:truncated],
+          error: state[:error].to_s,
+          updatedAt: state[:updatedAt].to_s
+        }
+      end
+
       def ensure_ui_state(config)
         ensure_state_dir(config)
         ensure_state_event(config)
         write_ui_state(config, default_ui_state) unless File.file?(ui_state_path(config))
         write_search_state(config, default_search_state) unless File.file?(search_state_path(config))
+        write_thread_state(config, default_thread_state) unless File.file?(thread_state_path(config))
       end
 
       def with_refresh_lock(config)

@@ -65,6 +65,8 @@ module RepoBar
         run_repos_command(args, config_path)
       when "search"
         run_search_command(args, config_path)
+      when "thread"
+        run_thread_command(args, config_path)
       when "repo", "issues", "pulls", "releases", "ci", "discussions", "tags", "branches", "contributors", "commits", "activity", "contributions"
         run_repo_detail_command(command, args, config_path)
       when "help", "-h", "--help"
@@ -104,6 +106,8 @@ module RepoBar
         release: nil,
         width: nil,
         age: nil,
+        number: nil,
+        kind: nil,
         forks: false,
         archived: false,
         pinned_only: false,
@@ -192,6 +196,13 @@ module RepoBar
         when "--release"
           index += 1
           args[:release] = argv[index] || true
+        when "--number"
+          index += 1
+          raise ArgumentError, "Positive --number required." unless argv[index].to_s.match?(/\A[1-9]\d*\z/)
+          args[:number] = argv[index].to_i
+        when "--kind"
+          index += 1
+          args[:kind] = argv[index]
         when "--width"
           index += 1
           args[:width] = argv[index].to_i
@@ -401,6 +412,21 @@ module RepoBar
         .map { |repo| Core::GitHub.hydrate_repository(config, token, repo) }
     end
 
+    def run_thread_command(args, config_path)
+      number = args[:number]
+      raise ArgumentError, "Positive --number required." unless number.to_i.positive?
+      kind = args[:kind] || "issue"
+      raise ArgumentError, "--kind must be issue or pr." unless %w[issue pr].include?(kind)
+      if args[:positionals].first == "fetch"
+        item_id = args[:positionals][1]
+        repository = args[:repo]
+        state = Runtime::Daemon.dispatch_action(config_path, type: "thread_start", itemId: item_id, repository: repository, number: number, kind: kind, limit: args[:limit])
+        args[:format] == "json" ? print_json(state, args) : puts("Loading #{state[:itemId]}.")
+        return 0
+      end
+      run_repo_detail_command("thread", args, config_path)
+    end
+
     def run_repo_detail_command(command, args, config_path)
       config = Core::Config.load_config(config_path)
       full_name = args[:positionals].first || args[:repo]
@@ -458,6 +484,21 @@ module RepoBar
         login = args[:login] || full_name
         payload = { login: login, imageUrl: "https://ghchart.rshah.org/#{login}" }
         args[:format] == "json" ? print_json(payload, args) : puts(payload[:imageUrl])
+      when "thread"
+        owner, name = full_name.split("/", 2)
+        kind = args[:kind] || "issue"
+        entries = Core::GitHub.item_thread(config, token, owner, name, args[:number], kind, args[:limit])
+        if args[:format] == "json"
+          print_json({ repoFullName: full_name, number: args[:number], kind: kind, entries: entries }, args)
+        elsif entries.empty?
+          puts "No comments."
+        else
+          entries.each do |entry|
+            marker = entry[:kind] == "comment" ? "" : " [#{entry[:kind]}#{entry[:state].to_s.empty? ? '' : ":#{entry[:state]}"}]"
+            puts "#{entry[:createdAt]} @#{entry[:author]}#{marker} #{entry[:url]}"
+            puts "  #{entry[:body].to_s.gsub(/\s+/, ' ').strip[0, 200]}"
+          end
+        end
       end
       0
     end
@@ -863,6 +904,8 @@ module RepoBar
           repobar repo owner/name
           repobar issues owner/name
           repobar pulls owner/name
+          repobar thread owner/name --number N --kind issue|pr [--limit N]
+          repobar thread fetch owner/name#N --repo owner/name --number N --kind issue|pr
           repobar releases owner/name
           repobar ci owner/name
           repobar tags|branches|contributors owner/name
