@@ -32,6 +32,26 @@ qml_lint_present() {
   command -v qmllint >/dev/null 2>&1
 }
 
+# `ruby -wc a.rb b.rb` only checks the first file, so every Ruby file is checked
+# on its own here. bin/release-check is the only non-Ruby file under bin, so the
+# list is filtered to *.rb rather than relying on ordering.
+run_ruby_syntax_check() {
+  local files
+  files="$(rg --files bin lib test -g '*.rb')"
+  test -n "$files" || { echo "no Ruby files found to check" >&2; return 1; }
+
+  local failed=0
+  while IFS= read -r file; do
+    [[ -n "$file" ]] || continue
+    if ! ruby -wc "$file" >/dev/null 2>&1; then
+      echo "syntax error in $file" >&2
+      ruby -wc "$file" >&2 || true
+      failed=1
+    fi
+  done <<<"$files"
+  return "$failed"
+}
+
 run_qml_lint_check() {
   if ! qml_lint_present; then
     echo "qmllint not installed; skipping QML lint"
@@ -89,7 +109,7 @@ trap cleanup EXIT
 
 cd "$ROOT_DIR"
 
-run_step "ruby syntax" zsh -lc 'ruby -wc bin/repobar $(rg --files lib test)'
+run_step "ruby syntax" run_ruby_syntax_check
 run_step "test suite" ruby -Itest test/run.rb
 run_step "qml lint" run_qml_lint_check
 run_step "config init" bash -lc "bin/repobar config init --config '$TMP_CONFIG' --format json >/dev/null"

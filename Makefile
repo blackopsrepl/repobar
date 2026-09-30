@@ -19,9 +19,19 @@ test:
 
 # rg is required, and its absence must fail the gate rather than silently skip
 # the syntax check (which is what `ruby -wc` with no arguments did).
+#
+# Each file is checked on its own: `ruby -wc a.rb b.rb` only ever checks the
+# FIRST file, so passing the whole list as one invocation left every other file
+# unchecked and made the result depend on ripgrep's ordering.
 syntax:
 	@command -v rg >/dev/null || { echo "repobar: ripgrep (rg) is required"; exit 1; }
-	ruby -wc $$(rg --files bin lib test) >/dev/null || exit 1
+	@files="$$(rg --files bin lib test -g '*.rb')"; \
+	test -n "$$files" || { echo "repobar: no Ruby files found to check"; exit 1; }; \
+	failed=0; \
+	for file in $$files; do \
+	  ruby -wc "$$file" >/dev/null 2>&1 || { echo "repobar: syntax error in $$file"; ruby -wc "$$file" >&2 || true; failed=1; }; \
+	done; \
+	test "$$failed" -eq 0
 
 lint:
 	@command -v qmllint >/dev/null || { echo "repobar: qmllint is required (qt6-declarative-dev-tools)"; exit 1; }
