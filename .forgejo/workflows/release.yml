@@ -51,6 +51,13 @@ jobs:
       - name: Checkout tagged source
         uses: https://data.forgejo.org/actions/checkout@v6
 
+      # The publish step builds the release payload with jq.
+      - name: Install release API tooling
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends jq
+          rm -rf /var/lib/apt/lists/*
+
       - name: Build source archive
         run: |
           set -euo pipefail
