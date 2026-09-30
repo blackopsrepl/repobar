@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.0.0](https://github.com/blackopsrepl/repobar/compare/v1.1.0...v2.0.0) (2026-09-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* drop Forgejo support and make triage a scored work queue
+
+### Features
+
+* drop Forgejo support and make triage a scored work queue d4d55f4
+
 ## [1.1.0](https://github.com/blackopsrepl/repobar/compare/v1.0.1...v1.1.0) (2026-09-30)
 
 

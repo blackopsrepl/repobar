@@ -19,7 +19,7 @@ RepoBar Linux is a SolverForge Linux companion for watching GitHub.com repositor
 ## Current Shape
 
 - CLI entrypoint: `bin/repobar`
-- Current release: `v1.1.0`
+- Current release: `v2.0.0`
 - Backend code: `lib/repobar/core`
 - Runtime code: `lib/repobar/runtime`
 - Human UI: `frontend/quickshell/shell.qml`
