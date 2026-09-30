@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.1.1](https://github.com/blackopsrepl/repobar/compare/v2.1.0...v2.1.1) (2026-09-30)
+
+
+### Bug Fixes
+
+* **reader:** render conversations automatically inside both panel views a550f31
+* **runtime:** pair QuickShell with its bundled backend dd93d66
+* **threads:** preserve conversations during reload and show complete posts 9564a02
+
 ## [2.1.0](https://github.com/blackopsrepl/repobar/compare/v2.0.2...v2.1.0) (2026-09-30)
 
 
