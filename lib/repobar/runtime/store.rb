@@ -143,6 +143,11 @@ module RepoBar
           updatedAt: timestamp
         }
         State.with_thread_lock(config) do
+          current = State.read_thread_state(config)
+          if current[:itemId].to_s == clean_id
+            state[:entries] = current[:entries]
+            state[:truncated] = current[:truncated]
+          end
           State.write_thread_state(config, state)
           State.read_thread_state(config)
         end
@@ -156,8 +161,8 @@ module RepoBar
 
           state = current.merge(
             status: error.to_s.empty? ? "ready" : "error",
-            entries: Array(entries),
-            truncated: truncated ? true : false,
+            entries: error.to_s.empty? ? Array(entries) : current[:entries],
+            truncated: error.to_s.empty? ? !!truncated : current[:truncated],
             error: error.to_s,
             updatedAt: timestamp
           )

@@ -80,8 +80,8 @@ class TriageTest < Minitest::Test
     item = build_view([repo])[:items].first
 
     assert_operator long_text.length, :>, 8000
-    assert_equal 8000, item[:bodyFull].length
-    assert_equal "#{long_text[0, 7997]}...", item[:bodyFull]
+    assert_equal long_text.length, item[:bodyFull].length
+    assert_equal long_text, item[:bodyFull]
     assert_operator item[:body].length, :<=, 220
   end
 

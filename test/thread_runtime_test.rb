@@ -33,6 +33,28 @@ class ThreadRuntimeTest < Minitest::Test
     assert_equal first[:requestId], RepoBar::Runtime::State.read_thread_state(config)[:requestId]
   end
 
+  def test_reloading_same_item_preserves_entries_while_loading
+    path = write_test_config
+    store = RepoBar::Runtime::Store
+    first = store.start_thread(path, "one/one#12", "one/one", 12, "pr")
+    cached = store.finish_thread(path, first[:requestId], entries: [{ body: "cached conversation" }], truncated: true)
+
+    loading = store.start_thread(path, "ONE/ONE#12", "one/one", 12, "pr")
+
+    assert_equal "loading", loading[:status]
+    refute_equal first[:requestId], loading[:requestId]
+    assert_equal cached[:entries], loading[:entries]
+    assert loading[:truncated]
+    assert_empty loading[:error]
+    repeated = store.start_thread(path, "one/one#12", "one/one", 12, "pr")
+    assert_equal cached[:entries], repeated[:entries]
+    assert_equal repeated, store.finish_thread(path, loading[:requestId], entries: [{ body: "stale refresh" }])
+
+    changed = store.start_thread(path, "two/two#12", "two/two", 12, "pr")
+    assert_empty changed[:entries]
+    refute changed[:truncated]
+  end
+
   def test_late_thread_response_cannot_replace_new_selection
     path = write_test_config
     store = RepoBar::Runtime::Store
@@ -83,6 +105,80 @@ class ThreadRuntimeTest < Minitest::Test
     current = read.call(RepoBar::Core::Config.load_config(path))
     assert_equal "one/one#13", current[:itemId]
     assert_empty current[:entries]
+  end
+
+  def test_github_error_preserves_same_item_conversation
+    path = write_test_config
+    store = RepoBar::Runtime::Store
+    first = store.start_thread(path, "one/one#12", "one/one", 12, "pr")
+    cached = store.finish_thread(path, first[:requestId], entries: [{ body: "cached conversation" }], truncated: true)
+    loading = store.start_thread(path, "one/one#12", "one/one", 12, "pr")
+
+    RepoBar::Core::GitHub.stub(:access_token, "test") do
+      RepoBar::Core::GitHub.stub(:item_thread, ->(*) { raise "GitHub unavailable" }) do
+        store.thread_effect(path, loading[:itemId], "one/one", 12, "pr", loading[:requestId], nil)
+      end
+    end
+
+    state = RepoBar::Runtime::State.read_thread_state(RepoBar::Core::Config.load_config(path))
+    assert_equal "error", state[:status]
+    assert_equal "GitHub unavailable", state[:error]
+    assert_equal loading[:requestId], state[:requestId]
+    assert_equal cached[:entries], state[:entries]
+    assert state[:truncated]
+    retrying = store.start_thread(path, "one/one#12", "one/one", 12, "pr")
+    assert_equal cached[:entries], retrying[:entries]
+    assert_empty retrying[:error]
+    recovered = store.finish_thread(path, retrying[:requestId], entries: [])
+    assert_equal "ready", recovered[:status]
+    assert_empty recovered[:entries]
+    refute recovered[:truncated]
+  end
+
+  def test_github_error_after_selection_change_never_crosses_items
+    path = write_test_config
+    store = RepoBar::Runtime::Store
+    first = store.start_thread(path, "one/one#12", "one/one", 12, "pr")
+    store.finish_thread(path, first[:requestId], entries: [{ body: "first conversation" }])
+    old_reload = store.start_thread(path, "one/one#12", "one/one", 12, "pr")
+    selected = store.start_thread(path, "two/two#12", "two/two", 12, "issue")
+
+    RepoBar::Core::GitHub.stub(:access_token, "test") do
+      RepoBar::Core::GitHub.stub(:item_thread, ->(*) { raise "GitHub unavailable" }) do
+        late = store.thread_effect(path, old_reload[:itemId], "one/one", 12, "pr", old_reload[:requestId], nil)
+        assert_equal selected, late
+        store.thread_effect(path, selected[:itemId], "two/two", 12, "issue", selected[:requestId], nil)
+      end
+    end
+
+    state = RepoBar::Runtime::State.read_thread_state(RepoBar::Core::Config.load_config(path))
+    assert_equal "two/two#12", state[:itemId]
+    assert_equal selected[:requestId], state[:requestId]
+    assert_equal "error", state[:status]
+    assert_equal "GitHub unavailable", state[:error]
+    assert_empty state[:entries]
+    refute state[:truncated]
+  end
+
+  def test_reader_original_bodies_are_complete_while_previews_stay_bounded
+    body = ("paragraph with original formatting\r\n\r\n" * 300) + "final paragraph"
+    repo = sample_repo(name: "one/one").merge(
+      pulls: [{ number: 12, body: body }],
+      issues: [{ number: 13, body: body }]
+    )
+    view = RepoBar::Runtime::State.build_snapshot(build_config, [repo], [], {})[:view]
+    expected = body.gsub(/\r\n?/, "\n")
+    assert_operator expected.length, :>, 8000
+    overview_items = view[:repositories].first.values_at(:pulls, :issues).flatten
+    triage_items = view[:triage][:items]
+    assert_equal 2, overview_items.length
+    assert_equal 2, triage_items.length
+    (overview_items + triage_items).each do |item|
+      assert_equal expected.length, item[:bodyFull].length
+      assert_equal expected, item[:bodyFull]
+      assert_equal RepoBar::Runtime::Presenter.readable_body(body), item[:body]
+      assert_operator item[:body].length, :<=, 220
+    end
   end
 
   def test_effect_writes_presented_entries_and_preserves_full_body

@@ -554,7 +554,7 @@ module RepoBar
           authorAvatarUrl: item[:authorAvatarUrl],
           authorUrl: item[:authorUrl],
           body: readable_body(item[:body]),
-          bodyFull: readable_full_body(item[:body]),
+          bodyFull: item[:body].to_s.gsub(/\r\n?/, "\n").strip,
           state: item[:state].to_s,
           updatedAt: item[:updatedAt],
           updatedText: Core::Format.relative_time(item[:updatedAt], now),
