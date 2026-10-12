@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
+import Quickshell.Wayland
 
 ShellRoot {
     id: root
@@ -41,7 +42,6 @@ ShellRoot {
 
     readonly property QtObject theme: QtObject {
         readonly property color bg: root.themeColor("background", "#0B0C16")
-        readonly property color bgDeep: root.themeColor("dark_background", "#050711")
         readonly property color surfaceDeep: root.themeColor("selection", "#0F1324")
         readonly property color surfaceAlt: root.themeColor("lighter_background", "#141528")
         readonly property color surfaceHover: root.themeColor("selection", "#18233C")
@@ -706,17 +706,18 @@ ShellRoot {
         }
     }
 
-    // One triage signal: a short tone-coloured chip with a hover explanation.
+    // Streamlined signal chip: tone carried by a left dot, not a filled pill —
+    // same glanceable tone and label, less width.
     component TriageSignalChip: Rectangle {
         id: signalChip
 
         property string label: ""
         property string tone: "muted"
 
-        implicitWidth: signalText.implicitWidth + 12
-        implicitHeight: 15
+        implicitWidth: signalDot.implicitWidth + 4 + signalText.implicitWidth + 8
+        implicitHeight: 14
         radius: 3
-        color: root.triageToneFill(signalChip.tone)
+        color: "transparent"
 
         ToolTip.delay: 350
         ToolTip.visible: signalHover.containsMouse && signalChip.label.length > 0
@@ -730,13 +731,24 @@ ShellRoot {
         }
 
         Text {
+            id: signalDot
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.left: parent.left
+            text: "●"
+            color: root.triageToneColor(signalChip.tone)
+            font.family: root.textFont
+            font.pixelSize: 7
+        }
+
+        Text {
             id: signalText
-            anchors.centerIn: parent
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.left: signalDot.right
+            anchors.leftMargin: 4
             text: signalChip.label
             color: root.triageToneColor(signalChip.tone)
             font.family: root.textFont
             font.pixelSize: 8
-            font.bold: true
         }
     }
 
@@ -1588,7 +1600,11 @@ ShellRoot {
         implicitWidth: screen ? screen.width : 960
         implicitHeight: screen ? screen.height : 760
         color: "transparent"
-        focusable: true
+        // Mac-bar behavior: no focus grab, no backdrop. The input mask is
+        // bound to the modal frame, so clicks outside it reach the desktop.
+        // Text fields take focus explicitly (repoInput/triageSearchInput).
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
+        mask: Region { item: modalFrame; intersection: Intersection.Intersect }
         aboveWindows: true
         exclusionMode: ExclusionMode.Ignore
         anchors {
@@ -1732,12 +1748,6 @@ ShellRoot {
             anchors.fill: parent
 
             Rectangle {
-                anchors.fill: parent
-                color: root.theme.bgDeep
-                opacity: 0.66
-            }
-
-            Rectangle {
                 id: modalFrame
                 anchors.centerIn: parent
                 width: Math.min(root.triageMode() || root.selectedRepository !== null ? 1280 : 960, Math.max(320, panel.width - 36))
@@ -1746,7 +1756,13 @@ ShellRoot {
                 border.color: root.theme.good
                 border.width: 1
                 radius: 4
-                focus: true
+                // Swallow clicks that land on the frame but miss every control;
+                // the window mask lets everything outside it through to the
+                // desktop.
+                MouseArea {
+                    anchors.fill: parent
+                    z: -1
+                }
                 Keys.onEscapePressed: root.closePanel()
 
                 ColumnLayout {
