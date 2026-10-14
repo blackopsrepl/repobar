@@ -298,12 +298,14 @@ class RuntimeTest < Minitest::Test
 
     repo_list_block = qml[/ListView \{\n\s*id: repoList\b(.*?)(?=\n\s*delegate:|\n\s*MouseArea \{)/m, 1].to_s
     refute_empty repo_list_block, "repoList not found"
-    assert_match(/ScrollBar\.vertical:\s*ScrollBar \{ policy: ScrollBar\.AsNeeded \}/, repo_list_block)
+    # The indicator is the shared invisible one (no painted groove over the
+    # graphics); the affordance is the header cue plus flick/wheel scrolling.
+    assert_match(/ScrollBar\.vertical:\s*InvisibleScroll \{ \}/, repo_list_block)
 
     %w[overviewWorkList repoRailList inboxList].each do |list_id|
       block = qml[/id:\s*#{list_id}\b(.*?)\n\s*delegate:/m, 1].to_s
-      assert_match(/ScrollBar\.vertical:\s*ScrollBar \{ policy: ScrollBar\.AsNeeded \}/, block,
-        "#{list_id} still uses an always-on or absent scrollbar")
+      assert_match(/ScrollBar\.vertical:\s*InvisibleScroll \{ \}/, block,
+        "#{list_id} must hang the invisible scrollbar indicator")
     end
   end
 end

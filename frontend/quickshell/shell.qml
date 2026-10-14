@@ -338,6 +338,14 @@ ShellRoot {
         }
     }
 
+    // Scroll indicator with no paint: the default ScrollBar's groove and
+    // handle drew straight over the graphics' right edge. Flicking, wheeling
+    // and key scrolling are untouched — only the visual is gone.
+    component InvisibleScroll: ScrollBar {
+        contentItem: Item { implicitWidth: 8 }
+        background: Item {}
+    }
+
     component TriageInboxSeparator: Item {
         property string sectionLabel: ""
 
@@ -2462,7 +2470,7 @@ ShellRoot {
                                 model: root.overviewItems
                                 clip: true
                                 spacing: 6
-                                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                                ScrollBar.vertical: InvisibleScroll { }
 
                                 delegate: Rectangle {
                                     required property var modelData
@@ -2533,7 +2541,7 @@ ShellRoot {
                                 contentHeight: overviewConversationColumn.implicitHeight + 24
                                 boundsBehavior: Flickable.StopAtBounds
                                 clip: true
-                                ScrollBar.vertical: ScrollBar {}
+                                ScrollBar.vertical: InvisibleScroll { }
 
                                 ColumnLayout {
                                     id: overviewConversationColumn
@@ -2630,7 +2638,7 @@ ShellRoot {
                                 spacing: 2
                                 model: root.triageRepos()
                                 topMargin: 4
-                                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                                ScrollBar.vertical: InvisibleScroll { }
 
                                 delegate: Rectangle {
                                     id: repoRailRow
@@ -2858,7 +2866,7 @@ ShellRoot {
                                 model: root.triageRows()
                                 currentIndex: -1
                                 cacheBuffer: 900
-                                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                                ScrollBar.vertical: InvisibleScroll { }
 
                                 delegate: Item {
                                     width: inboxList.width
@@ -2952,9 +2960,7 @@ ShellRoot {
                                     boundsBehavior: Flickable.StopAtBounds
                                     visible: root.selectedTriageItem() !== null
 
-                                    ScrollBar.vertical: ScrollBar {
-                                        policy: triageReaderScroll.contentHeight > triageReaderScroll.height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
-                                    }
+                                    ScrollBar.vertical: InvisibleScroll { }
 
                                     ColumnLayout {
                                         id: triageReaderColumn
@@ -3337,7 +3343,7 @@ ShellRoot {
                     spacing: 8
                     visible: !root.triageMode() && root.selectedRepository === null
                     model: repositories
-                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                    ScrollBar.vertical: InvisibleScroll { }
 
                     MouseArea {
                         property int wheelFlickSpeed: 5
