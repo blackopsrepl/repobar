@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.6.1](https://github.com/blackopsrepl/repobar/compare/v2.6.0...v2.6.1) (2026-10-14)
+
+
+### Bug Fixes
+
+* **panel:** pin the header action row to the title line 9d9bc7c
+
 ## [2.6.0](https://github.com/blackopsrepl/repobar/compare/v2.5.0...v2.6.0) (2026-10-14)
 
 
