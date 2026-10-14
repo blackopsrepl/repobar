@@ -431,7 +431,7 @@ ShellRoot {
                     text: triageRow.rowData && triageRow.rowData.kind === "pr" ? "PR" : "IS"
                     color: triageRow.rowData && triageRow.rowData.kind === "pr" ? root.theme.goodSoft : root.theme.info
                     font.family: root.textFont
-                    font.pixelSize: 8
+                    font.pixelSize: 9
                     font.bold: true
                 }
             }
@@ -599,7 +599,7 @@ ShellRoot {
                 text: "Conversation"
                 color: root.theme.text
                 font.family: root.textFont
-                font.pixelSize: 13
+                font.pixelSize: 12
                 font.bold: true
             }
             Text {
@@ -802,7 +802,7 @@ ShellRoot {
             text: signalChip.label
             color: root.triageToneColor(signalChip.tone)
             font.family: root.textFont
-            font.pixelSize: 8
+            font.pixelSize: 9
         }
     }
 
@@ -1929,7 +1929,7 @@ ShellRoot {
                                     text: "RepoBar"
                                     color: root.theme.text
                                     font.family: root.textFont
-                                    font.pixelSize: 22
+                                    font.pixelSize: 21
                                     font.bold: true
                                 }
                                 // Live dot: the panel is a live view; the dot
@@ -2339,7 +2339,7 @@ ShellRoot {
                                         text: (modelData.owner || "?").toString().slice(0, 1).toUpperCase()
                                         color: root.theme.goodSoft
                                         font.family: root.textFont
-                                        font.pixelSize: 13
+                                        font.pixelSize: 12
                                         font.bold: true
                                         visible: !(modelData.ownerAvatarUrl || "")
                                     }
@@ -2353,7 +2353,7 @@ ShellRoot {
                                         text: modelData.fullName || ""
                                         color: root.theme.text
                                         font.family: root.textFont
-                                        font.pixelSize: 13
+                                        font.pixelSize: 12
                                         font.bold: true
                                         elide: Text.ElideRight
                                     }
@@ -2429,7 +2429,7 @@ ShellRoot {
                                 text: root.selectedRepository ? root.selectedRepository.fullName + "  ·  " + root.overviewItems.length + " work items" : ""
                                 color: root.theme.text
                                 font.family: root.textFont
-                                font.pixelSize: 14
+                                font.pixelSize: 15
                                 font.bold: true
                                 elide: Text.ElideRight
                             }
@@ -2540,7 +2540,7 @@ ShellRoot {
                                         textFormat: Text.PlainText
                                         color: root.theme.text
                                         font.family: root.textFont
-                                        font.pixelSize: 18
+                                        font.pixelSize: 12
                                         font.bold: true
                                         wrapMode: Text.Wrap
                                     }
@@ -3010,7 +3010,7 @@ ShellRoot {
                                                     text: root.selectedTriageItem() ? ("#" + root.selectedTriageItem().number + " " + root.selectedTriageItem().title) : ""
                                                     color: root.theme.text
                                                     font.family: root.textFont
-                                                    font.pixelSize: 14
+                                                    font.pixelSize: 15
                                                     font.bold: true
                                                     wrapMode: Text.Wrap
                                                 }
@@ -3427,7 +3427,7 @@ ShellRoot {
                                                 text: (modelData.owner || "?").toString().slice(0, 1).toUpperCase()
                                                 color: root.theme.goodSoft
                                                 font.family: root.textFont
-                                                font.pixelSize: 16
+                                                font.pixelSize: 15
                                                 font.bold: true
                                                 visible: !(modelData.ownerAvatarUrl || "")
                                             }
@@ -3440,7 +3440,7 @@ ShellRoot {
                                                 text: modelData.fullName || ""
                                                 color: root.theme.text
                                                 font.family: root.textFont
-                                                font.pixelSize: 16
+                                                font.pixelSize: 15
                                                 font.bold: true
                                             }
                                             Text {

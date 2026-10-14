@@ -3,6 +3,7 @@
 require_relative "action_strip_squeeze_test"
 require_relative "config_test"
 require_relative "dropdown_test"
+require_relative "family_style_test"
 require_relative "github_test"
 require_relative "local_git_test"
 require_relative "omarchy_test"
