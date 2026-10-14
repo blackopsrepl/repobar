@@ -84,7 +84,7 @@ class ActionStripSqueezeTest < Minitest::Test
   # four controls in a compact 2x2 footprint instead.
   def test_header_buttons_fold_into_a_grid_at_the_narrow_breakpoint
     qml = qml_source
-    narrow_grid = qml[/GridLayout \{\n\s*visible: root\.narrowLayout\n\s*columns: 2\n[\s\S]*?\n\s*Button \{\n\s*text: "Close"[\s\S]*?\n\s*\}\n\s*\}\n/m]
+    narrow_grid = qml[/GridLayout \{\n\s*visible: root\.narrowLayout\n\s*columns: 2\n[\s\S]*?\n\s*ActionButton \{\n\s*label: "Close"\n\s*tone: "muted"[\s\S]*?\n\s*\}\n\s*\}\n/m]
     refute_nil narrow_grid, "the narrow header button grid is missing"
 
     ["ModeTabButton", "\"Refresh\"", "\"Close\"", "root.showOverviewMode()", "root.closePanel()"].each do |needle|

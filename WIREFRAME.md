@@ -101,12 +101,12 @@ Daemon-owned actions:
 
 ## QuickShell Layout
 
-Modal overlay:
+Bar drop-down (bounded surface, not an overlay):
 
-1. The QuickShell surface is a transparent full-screen `PanelWindow`.
-2. The dim overlay covers the screen without claiming Waybar layout space.
-3. The modal frame is centered vertically and horizontally relative to the screen.
-4. The frame uses nearly the full screen height with small vertical margins, giving the account heatmap, reader, and repo list more vertical room.
+1. The QuickShell surface is a bounded `PanelWindow`: anchored to the top screen edge (plus left/right, which pin the horizontal span), never bottom-anchored.
+2. The surface's implicit size is exactly the card's counted geometry plus the card's top margin; it reserves no Waybar layout space.
+3. The card hangs below the bar edge on the same side as its Waybar chip, with a shadow separating it from the bar.
+4. The height is counted from what is actually laid out (chrome + visible repo rows at their card pitch; triage keeps its three-pane floor), capped to the window minus the top margin and a breathing gap — the card never reaches the screen's bottom edge, and rows past the visible count scroll inside the list with a "more repos below the fold" cue.
 
 Panel content:
 

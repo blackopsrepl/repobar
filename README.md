@@ -8,9 +8,9 @@ RepoBar Linux is a SolverForge Linux companion for watching GitHub.com repositor
 
 ## Screenshots
 
-### Centered QuickShell Modal
+### Bar Drop-Down Panel
 
-![RepoBar Linux QuickShell modal centered vertically with repository pressure, account activity, repo cards, and pinned repo controls](docs/assets/repobar-panel-screenshot.png)
+![RepoBar Linux QuickShell bar drop-down with repository pressure, account activity, repo cards, and pinned repo controls](docs/assets/repobar-panel-screenshot.png)
 
 ### Pinned Repo Reordering
 
@@ -27,7 +27,7 @@ RepoBar Linux is a SolverForge Linux companion for watching GitHub.com repositor
 - Runtime state: `~/.local/state/repobar/`
 - Local release gate: `bin/release-check`
 
-RepoBar has one product UI: QuickShell. Waybar is only a launcher and cached-state renderer. The QuickShell panel reads `snapshot.json`, `ui.json`, `search.json`, and `state-event.json`; it never calls GitHub.com or `git` directly.
+RepoBar has one product UI: QuickShell. Waybar is only a launcher and cached-state renderer. The QuickShell panel reads `snapshot.json`, `ui.json`, `search.json`, and `state-event.json`; it never calls GitHub.com or `git` directly. The panel is a bounded bar drop-down: the surface is exactly the card's rect (top-edge anchored, `ExclusionMode.Ignore`), so it drops below the bar edge on the same side as its Waybar chip and never covers other apps. The dismissal contract is family-standard — click inside the popover to interact, Esc or the Close button to dismiss — and the desktop around the card is never covered, so no full-screen outside-click dismissal exists.
 
 ## What It Shows
 

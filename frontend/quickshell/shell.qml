@@ -22,8 +22,14 @@ ShellRoot {
     // bindings below key off these two root properties instead of raw
     // viewport comparisons, so every layout branch has one readable name
     // and nothing silently hides without its narrow fallback.
-    property bool narrowLayout: panel.width < 720
-    property bool shortViewport: panel.height < 560
+    // The breakpoints read the screen box, not the panel's own size: the
+    // bounded surface's height participates in its own sizing, so a
+    // panel.height read inside implicitHeight would make a binding loop
+    // (caught as a headless render warning).
+    readonly property int screenBoxWidth: root.panelScreen() ? root.panelScreen().width : 960
+    readonly property int screenBoxHeight: root.panelScreen() ? root.panelScreen().height : 760
+    property bool narrowLayout: root.screenBoxWidth < 720
+    property bool shortViewport: root.screenBoxHeight < 560
 
     // Omarchy theme wiring: live-follows the active Omarchy theme palette
     // (the same colors.toml the Omarchy shell reads). Falls back to the
@@ -288,6 +294,47 @@ ShellRoot {
                     }
                 }
             }
+        }
+    }
+
+    // Family-styled header action button (switchyard 8cda212 pattern): tone
+    // carries the color, tooltips and Accessible.name describe the icon-free
+    // label.
+    component ActionButton: Button {
+        id: actionButton
+
+        property string label: ""
+        property string tooltip: ""
+        property string tone: "info"
+
+        implicitWidth: actionLabel.implicitWidth + 22
+        implicitHeight: 26
+        padding: 0
+        hoverEnabled: true
+
+        ToolTip.delay: 350
+        ToolTip.visible: actionButton.hovered && actionButton.tooltip.length > 0
+        ToolTip.text: actionButton.tooltip
+        Accessible.name: actionButton.label
+        Accessible.role: Accessible.Button
+
+        background: Rectangle {
+            radius: 4
+            color: actionButton.down ? root.theme.surfaceDown
+                : actionButton.hovered ? root.theme.surfaceHover : root.theme.surfaceDeep
+            border.width: 1
+            border.color: actionButton.hovered ? root.triageToneColor(actionButton.tone) : root.theme.border
+        }
+
+        contentItem: Text {
+            id: actionLabel
+            text: actionButton.label
+            color: root.triageToneColor(actionButton.tone)
+            font.family: root.textFont
+            font.pixelSize: 10
+            font.bold: true
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
         }
     }
 
@@ -1476,22 +1523,41 @@ ShellRoot {
         runRepobar(["ui", "mode", "overview"])
     }
 
-    // Modal geometry: the frame wraps its content instead of filling the
-    // screen. Cards dominate the height (204px pitch: 196 card + 8 list
-    // spacing), so derive the height from the visible row count plus measured
-    // chrome, keep a floor that preserves the account heatmap band, and clamp
-    // the result to the viewport minus real margins so no card can grow the
-    // frame past the screen on any display.
-    readonly property int modalMargin: 18
+    // Bar drop-down geometry: the surface hugs the bar's top edge on the side
+    // its chip occupies (top + left + right anchors, no bottom anchor), so the
+    // PanelWindow is exactly the strip the card needs and the desktop under
+    // and beside it stays interactive. 52 = SolverForge Fira Code 13px bar
+    // plus 0 4px padding and a breathing gap. The height is counted from the
+    // parts actually laid out — never summed from implicit sizes (a ListView
+    // and a fillHeight pane both report a near-zero implicit height) — and
+    // capped to the window minus the top margin and a breathing gap, so the
+    // card never overlaps the screen's bottom edge; rows beyond the count
+    // scroll inside the list with their own cue.
+    property int panelTopMargin: 52
+    property int popupMaxWidth: 920
+    function visibleRows() {
+        return root.shortViewport ? 3 : 6
+    }
+    function panelScreen() {
+        return Quickshell.screens.length ? Quickshell.screens[0] : null
+    }
     function modalGeometry() {
-        var chrome = 14 * 2 + 8 + 22 + 8 + 104 + 8 + 40 + 12 + 2 + 12
-        var cardRows = Math.max(1, root.repositories.length)
-        var rowHeight = 196 + 8
-        var contentHeight = chrome + cardRows * rowHeight
-        var availableHeight = Math.max(0, panel.height - (root.modalMargin * 2))
-        var height = Math.max(420, Math.min(availableHeight, contentHeight))
-        var width = Math.min(root.triageMode() || root.selectedRepository !== null ? 1280 : 960, Math.max(320, panel.width - 36))
-        return { width: width, height: Math.min(panel.height - 4, height) }
+        // 118 = modal margins (14*2) + title (22) + spacings (8*3) + repo-row
+        // chrome (44: "Repositories" header band + card border).
+        var chromeCounted = 118
+        var repoRows = Math.max(1, root.repositories.length)
+        var rowsHeight = Math.min(repoRows, root.visibleRows()) * 204
+        var listCountedHeight = chromeCounted + rowsHeight
+        // Triage's three panes are fillHeight surfaces under fixed header
+        // bands; their usable floor (816) keeps rail rows and reader content
+        // from clipping as the strip grows toward the cap.
+        var triageCountedHeight = 816
+        var screen = root.panelScreen()
+        var topMargin = root.panelTopMargin
+        var contentHeight = topMargin + Math.max(listCountedHeight, triageCountedHeight)
+        var height = Math.min(Math.max(420, contentHeight), screen.height - topMargin - 12)
+        var width = Math.min((root.triageMode() || root.selectedRepository !== null ? 1280 : 960), Math.max(360, screen.width - 36))
+        return { width: width, height: Math.min(screen.height - topMargin - 4, height), top: topMargin }
     }
 
     function showTriageMode() {
@@ -1628,29 +1694,31 @@ ShellRoot {
         id: panel
         visible: uiAdapter.open
         screen: Quickshell.screens.length ? Quickshell.screens[0] : null
-        // Full-screen layer surface: modalGeometry() clamps the centered
-        // frame to this viewport, so no margins are needed on the window.
-        implicitWidth: screen ? screen.width : 960
-        implicitHeight: screen ? screen.height : 760
+        // Bounded bar drop-down: the surface is anchored to exactly one screen
+        // edge (top) — never bottom-anchored, never screen-sized — so its
+        // implicit size IS the card's counted geometry plus the margin that
+        // hangs it from the bar. The side margins center the strip on the
+        // screen without pinning its edges; the desktop outside the strip is
+        // never covered. No mask is set: the whole bounded surface accepts
+        // input (a Wayland layer shell surface is opaque to input), so a click
+        // inside the window but outside the card radius dismisses, while
+        // clicks on the desktop outside land on the desktop. Text fields take
+        // focus explicitly (repoInput/triageSearchInput).
+        readonly property var cardGeometry: root.modalGeometry()
+        implicitWidth: panel.cardGeometry.width
+        implicitHeight: panel.cardGeometry.height + root.panelTopMargin
         color: "transparent"
-        // Mac-bar behavior: no focus grab, no backdrop. The input mask is
-        // bound to the modal frame, so clicks outside it reach the desktop.
-        // Text fields take focus explicitly (repoInput/triageSearchInput).
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
-        mask: Region { item: modalFrame; intersection: Intersection.Intersect }
         aboveWindows: true
         exclusionMode: ExclusionMode.Ignore
         anchors {
             top: true
-            bottom: true
-            left: true
-            right: true
         }
         margins {
-            top: 0
+            top: panel.cardGeometry.top
             bottom: 0
-            left: 0
-            right: 0
+            left: Math.max(0, (screen.width - panel.cardGeometry.width) / 2)
+            right: Math.max(0, (screen.width - panel.cardGeometry.width) / 2)
         }
         onVisibleChanged: {
             if (visible) {
@@ -1780,20 +1848,59 @@ ShellRoot {
         Item {
             anchors.fill: parent
 
+            // The bounded surface's input spans exactly the bar-to-card strip
+            // (plus the border ring around the card). A click on that strip —
+            // inside the window but outside the card radius — dismisses the
+            // drop-down, the same way a desktop outside-click worked when the
+            // surface covered the screen. With a bounded surface the desktop
+            // outside the strip is never covered, so it keeps its clicks and
+            // the catch-all outside-click path is gone with the full-screen
+            // shape.
+            Rectangle {
+                id: stripCatcher
+                anchors.fill: parent
+                color: "transparent"
+                MouseArea {
+                    anchors.fill: parent
+                    z: -1
+                    onClicked: root.closePanel()
+                }
+            }
+
+            // Shadow separation: the card hangs from the bar edge, so a 5px
+            // translucent offset below it reads as a drop, not a float.
+            Rectangle {
+                id: frameShadow
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.top: parent.top
+                anchors.topMargin: 5
+                width: modalFrame.width
+                height: modalFrame.height
+                color: Qt.rgba(0, 0, 0, 0.35)
+                radius: 10
+                visible: modalFrame.visible
+            }
+
             Rectangle {
                 id: modalFrame
-                anchors.centerIn: parent
-                readonly property var geometry: root.modalGeometry()
-                width: modalFrame.geometry.width
-                height: modalFrame.geometry.height
+                // The surface is exactly the card's rect: the window's own top
+                // margin hangs the card from the bar, so the card fills what
+                // remains.
+                width: panel.cardGeometry.width
+                height: panel.cardGeometry.height
+                anchors {
+                    top: parent.top
+                    horizontalCenter: parent.horizontalCenter
+                }
                 color: root.theme.bg
                 border.color: root.theme.good
                 border.width: 1
-                radius: 4
-                // Swallow clicks that land on the frame but miss every control;
-                // the window mask lets everything outside it through to the
-                // desktop.
+                radius: 8
+                // Swallow clicks that land on the card but miss every control,
+                // so dead space inside the popover stays interactive without
+                // reaching the strip catcher beneath the card.
                 MouseArea {
+                    id: cardCatcher
                     anchors.fill: parent
                     z: -1
                 }
@@ -1815,12 +1922,30 @@ ShellRoot {
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: 2
-                            Text {
-                                text: "RepoBar"
-                                color: root.theme.text
-                                font.family: root.textFont
-                                font.pixelSize: 22
-                                font.bold: true
+                            Row {
+                                spacing: 8
+
+                                Text {
+                                    text: "RepoBar"
+                                    color: root.theme.text
+                                    font.family: root.textFont
+                                    font.pixelSize: 22
+                                    font.bold: true
+                                }
+                                // Live dot: the panel is a live view; the dot
+                                // carries that at a glance. Amber while a
+                                // dispatch or thread fetch is in flight, red
+                                // when the snapshot reports a failed repo,
+                                // green when idle.
+                                Rectangle {
+                                    id: liveDot
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 7
+                                    height: 7
+                                    radius: 3.5
+                                    color: actionRunner.running || root.threadRequestedId.length > 0 ? root.theme.warn
+                                        : ((viewData.summary.errorCount || 0) > 0 ? root.theme.bad : root.theme.goodSoft)
+                                }
                             }
                             Text {
                                 Layout.fillWidth: true
@@ -1870,12 +1995,16 @@ ShellRoot {
                                 ToolTip.text: "Cross-repo issue and PR inbox"
                                 onClicked: root.showTriageMode()
                             }
-                            Button {
-                                text: "Refresh"
+                            ActionButton {
+                                label: "Refresh"
+                                tone: "info"
+                                tooltip: "Re-scan repositories and rebuild the cached snapshot"
                                 onClicked: runRepobar(["refresh"])
                             }
-                            Button {
-                                text: "Close"
+                            ActionButton {
+                                label: "Close"
+                                tone: "muted"
+                                tooltip: "Close the panel (Esc)"
                                 onClicked: root.closePanel()
                             }
                         }
@@ -1897,12 +2026,16 @@ ShellRoot {
                                 ToolTip.text: "Cross-repo issue and PR inbox"
                                 onClicked: root.showTriageMode()
                             }
-                            Button {
-                                text: "Refresh"
+                            ActionButton {
+                                label: "Refresh"
+                                tone: "info"
+                                tooltip: "Re-scan repositories and rebuild the cached snapshot"
                                 onClicked: runRepobar(["refresh"])
                             }
-                            Button {
-                                text: "Close"
+                            ActionButton {
+                                label: "Close"
+                                tone: "muted"
+                                tooltip: "Close the panel (Esc)"
                                 onClicked: root.closePanel()
                             }
                         }
@@ -2126,6 +2259,10 @@ ShellRoot {
                     Text {
                         Layout.rightMargin: 14
                         text: root.scrollCueText(repositories.length, repoList.contentHeight, repoList.height)
+                            + (root.repositories.length - Math.min(repoList.count, root.visibleRows()) > 0
+                                ? "  ·  " + (root.repositories.length - Math.min(repoList.count, root.visibleRows()))
+                                    + " more repos below the fold — scroll"
+                                : "")
                         color: root.theme.textMuted
                         font.family: root.textFont
                         font.pixelSize: 10

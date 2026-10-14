@@ -196,10 +196,11 @@ class RuntimeTest < Minitest::Test
     end
   end
 
-  # The modal frame must size itself from content and the real viewport, not
-  # grow to almost the whole screen on every display: the 420px floor may only
-  # apply on genuinely tiny screens, and the 18px declared margins must reach
-  # the modal instead of being overridden by centering.
+  # The modal frame must size itself from the counted modalGeometry(), not a
+  # hand-clamped inline expression: the 420px floor may only apply on genuinely
+  # tiny screens, and the counted height stays bounded by the window minus the
+  # bar drop-down's top margin (broad tests for counting/capping live in
+  # dropdown_test.rb; this one guards the frame's wiring to the helper).
   def test_shell_qml_modal_height_fits_viewport_with_margins
     qml = File.read(File.expand_path("../frontend/quickshell/shell.qml", __dir__))
 
@@ -210,23 +211,20 @@ class RuntimeTest < Minitest::Test
       .find { |line| line.lstrip.start_with?("height:") }.to_s
     refute_empty height_line, "modalFrame height expression not found"
 
-    # The frame reads its height from the modalGeometry() geometry property;
-    # a hand-clamped inline expression with an unconditional 420px floor must
+    # The frame reads its height from the cardGeometry the helper feeds; a
+    # hand-clamped inline expression with an unconditional 420px floor must
     # not come back.
-    assert_includes height_line, "modalFrame.geometry.height"
+    assert_includes height_line, "panel.cardGeometry.height"
     refute_match(/Math\.max\(420,/, height_line)
 
     geometry_block = qml[/function modalGeometry\(\) \{(.*?\n    \}\n)/m, 1].to_s
     refute_empty geometry_block, "modalGeometry() not found"
 
-    # Content-derived height: cards × pitch + chrome, floored by the heatmap
-    # band, clamped first to the viewport minus real margins...
-    assert_match(/Math\.min\(availableHeight, contentHeight\)/, geometry_block)
-    assert_match(/contentHeight\s*=\s*chrome/, geometry_block)
-    assert_match(/availableHeight\s*=\s*Math\.max\([^)]*,\s*panel\.height\s*-\s*\(root\.modalMargin\s*\*\s*2\)\)/, geometry_block)
-    # ...and then by a final outer clamp, so a short screen can still shrink
-    # the modal below the content height instead of overflowing the screen.
-    assert_match(/Math\.min\(panel\.height\s*-\s*4\b/, geometry_block)
+    # The cap reads the screen minus the drop-down's top margin and a breathing
+    # gap, so the card can never reach the screen's bottom edge.
+    assert_match(/screen\.height\s*-\s*topMargin - 12/, geometry_block)
+    # ...and the outer clamp keeps a short screen from overflowing.
+    assert_match(/Math\.min\(screen\.height\s*-\s*topMargin - 4\b/, geometry_block)
   end
 
   # The pinned card's preferred action row (drag + 5 buttons + spacing, and the
@@ -264,16 +262,16 @@ class RuntimeTest < Minitest::Test
   def test_shell_qml_responsive_breakpoints_are_declared_and_gated
     qml = File.read(File.expand_path("../frontend/quickshell/shell.qml", __dir__))
 
-    assert_match(/property bool narrowLayout: panel\.width < \d+/, qml,
+    assert_match(/property bool narrowLayout: root\.screenBoxWidth < \d+/, qml,
       "narrowLayout breakpoint not declared on root")
-    assert_match(/property bool shortViewport: panel\.height < \d+/, qml,
+    assert_match(/property bool shortViewport: root\.screenBoxHeight < \d+/, qml,
       "shortViewport breakpoint not declared on root")
 
     # No element binding may test raw viewport comparisons; everything keys
     # off the declared breakpoints. (modalGeometry()'s viewport arithmetic is
     # the one sanctioned consumer; its gsub keeps the check out of that block.)
     refute_match(/modalFrame\.width\s*>=\s*\d/, qml)
-    refute_match(/panel\.width\s*-\s*36/, qml.gsub("Math.max(320, panel.width - 36)", "MODAL_WIDTH_FLOOR"))
+    refute_match(/panel\.width\s*-\s*36/, qml.gsub("Math.max(360, panel.width - 36)", "MODAL_WIDTH_FLOOR"))
     refute_match(/triageSplit\.width\s*>=\s*\d/, qml)
 
     # The contribution side panel (the widest fixed-pane element the viewport
