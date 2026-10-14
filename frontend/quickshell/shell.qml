@@ -1983,6 +1983,7 @@ ShellRoot {
                         // header row fits the floor modal.
                         GridLayout {
                             visible: root.narrowLayout
+                            Layout.alignment: Qt.AlignTop
                             columns: 2
                             columnSpacing: 6
                             rowSpacing: 6
@@ -2016,6 +2017,7 @@ ShellRoot {
                         }
                         RowLayout {
                             visible: !root.narrowLayout
+                            Layout.alignment: Qt.AlignTop
                             spacing: 10
 
                             ModeTabButton {

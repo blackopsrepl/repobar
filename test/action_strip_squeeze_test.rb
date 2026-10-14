@@ -84,7 +84,7 @@ class ActionStripSqueezeTest < Minitest::Test
   # four controls in a compact 2x2 footprint instead.
   def test_header_buttons_fold_into_a_grid_at_the_narrow_breakpoint
     qml = qml_source
-    narrow_grid = qml[/GridLayout \{\n\s*visible: root\.narrowLayout\n\s*columns: 2\n[\s\S]*?\n\s*ActionButton \{\n\s*label: "Close"\n\s*tone: "muted"[\s\S]*?\n\s*\}\n\s*\}\n/m]
+    narrow_grid = qml[/GridLayout \{\n\s*visible: root\.narrowLayout\n(?:\s*Layout\.alignment:[^\n]*\n)?\s*columns: 2\n[\s\S]*?\n\s*ActionButton \{\n\s*label: "Close"\n\s*tone: "muted"[\s\S]*?\n\s*\}\n\s*\}\n/m]
     refute_nil narrow_grid, "the narrow header button grid is missing"
 
     ["ModeTabButton", "\"Refresh\"", "\"Close\"", "root.showOverviewMode()", "root.closePanel()"].each do |needle|
@@ -93,7 +93,7 @@ class ActionStripSqueezeTest < Minitest::Test
 
     # The two branches are exclusive: exactly one of the pair is visible per
     # breakpoint, so the deck never duplicates its buttons on screen.
-    wides = qml.scan(/RowLayout \{\n\s*visible: !root\.narrowLayout\n\s*spacing: 10\n\n\s*ModeTabButton \{/)
+    wides = qml.scan(/RowLayout \{\n\s*visible: !root\.narrowLayout\n(?:\s*Layout\.alignment:[^\n]*\n)?\s*spacing: 10\n\n\s*ModeTabButton \{/)
     narrow_grids = qml.scan(/GridLayout \{\n\s*visible: root\.narrowLayout\n/)
     assert_equal 1, narrow_grids.length, "the narrow header grid must be declared exactly once"
     assert_equal 1, wides.length, "the wide header button row must be declared exactly once"
