@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "action_strip_squeeze_test"
 require_relative "config_test"
 require_relative "github_test"
 require_relative "local_git_test"

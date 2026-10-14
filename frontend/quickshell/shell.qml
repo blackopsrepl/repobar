@@ -1841,27 +1841,70 @@ ShellRoot {
                             }
                         }
 
-                        ModeTabButton {
-                            label: "Overview"
-                            selected: !root.triageMode()
-                            enabled: root.triageMode()
-                            ToolTip.text: "Repository cards"
-                            onClicked: root.showOverviewMode()
+                        // Four mode/action buttons in one horizontal row set the
+                        // header row's minimum near 665px; on a roomy modal the
+                        // flexible title column absorbs the difference, but at
+                        // the 320px width floor the row's minimum exceeds the
+                        // modal column and Qt overflows the whole content column
+                        // (repo cards rendered ~187px past the modal frame,
+                        // their right borders off-screen). A compact grid keeps
+                        // the same controls within a ~100px footprint so the
+                        // header row fits the floor modal.
+                        GridLayout {
+                            visible: root.narrowLayout
+                            columns: 2
+                            columnSpacing: 6
+                            rowSpacing: 6
+
+                            ModeTabButton {
+                                label: "Overview"
+                                selected: !root.triageMode()
+                                enabled: root.triageMode()
+                                ToolTip.text: "Repository cards"
+                                onClicked: root.showOverviewMode()
+                            }
+                            ModeTabButton {
+                                label: "Triage"
+                                selected: root.triageMode()
+                                enabled: !root.triageMode()
+                                ToolTip.text: "Cross-repo issue and PR inbox"
+                                onClicked: root.showTriageMode()
+                            }
+                            Button {
+                                text: "Refresh"
+                                onClicked: runRepobar(["refresh"])
+                            }
+                            Button {
+                                text: "Close"
+                                onClicked: root.closePanel()
+                            }
                         }
-                        ModeTabButton {
-                            label: "Triage"
-                            selected: root.triageMode()
-                            enabled: !root.triageMode()
-                            ToolTip.text: "Cross-repo issue and PR inbox"
-                            onClicked: root.showTriageMode()
-                        }
-                        Button {
-                            text: "Refresh"
-                            onClicked: runRepobar(["refresh"])
-                        }
-                        Button {
-                            text: "Close"
-                            onClicked: root.closePanel()
+                        RowLayout {
+                            visible: !root.narrowLayout
+                            spacing: 10
+
+                            ModeTabButton {
+                                label: "Overview"
+                                selected: !root.triageMode()
+                                enabled: root.triageMode()
+                                ToolTip.text: "Repository cards"
+                                onClicked: root.showOverviewMode()
+                            }
+                            ModeTabButton {
+                                label: "Triage"
+                                selected: root.triageMode()
+                                enabled: !root.triageMode()
+                                ToolTip.text: "Cross-repo issue and PR inbox"
+                                onClicked: root.showTriageMode()
+                            }
+                            Button {
+                                text: "Refresh"
+                                onClicked: runRepobar(["refresh"])
+                            }
+                            Button {
+                                text: "Close"
+                                onClicked: root.closePanel()
+                            }
                         }
                     }
 
@@ -3315,7 +3358,13 @@ ShellRoot {
 
                                         Item {
                                             id: heatmapTrack
-                                            Layout.fillWidth: true
+                                            // The track grows only while the row
+                                            // has spare width; at the width
+                                            // floor it releases its fill and
+                                            // falls back to its 58px minimum so
+                                            // the action strip can wrap.
+                                            Layout.fillWidth: !root.narrowLayout
+                                            Layout.preferredWidth: 58
                                             Layout.minimumWidth: 58
                                             Layout.preferredHeight: 18
                                             clip: true
@@ -3366,7 +3415,19 @@ ShellRoot {
                                             Layout.fillWidth: false
                                             Layout.alignment: Qt.AlignRight
                                             Layout.minimumWidth: 0
-                                            Layout.maximumWidth: repoCard.width - 20
+                                            // The remaining width is what the
+                                            // row can spare after its margins
+                                            // (20), the narrow heatmap label
+                                            // (108), the track minimum (58) and
+                                            // the two 8px spacings (16) — 202
+                                            // in total. Capping the strip there
+                                            // is what lets the Flow wrap inside
+                                            // the card instead of the row
+                                            // overflowing past the card edge;
+                                            // the 72px floor keeps at least two
+                                            // buttons per row on even tighter
+                                            // cards.
+                                            Layout.maximumWidth: Math.max(72, repoCard.width - 202)
                                             Layout.preferredHeight: flowRows * (rowBand + spacing) - spacing
                                             spacing: 2
 
