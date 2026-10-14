@@ -256,6 +256,37 @@ class RuntimeTest < Minitest::Test
     refute_match(/Layout\.fillWidth:\s*true/, strip_block)
   end
 
+  # Responsive breakpoints: declared root properties mirror the switchyard
+  # pattern (thresholds, not magic numbers scattered through bindings), every
+  # breakpoint gate references one of them — no raw width comparisons left in
+  # element bindings — and the elements they hide have a narrow-fallback so
+  # the controls stay reachable instead of disappearing.
+  def test_shell_qml_responsive_breakpoints_are_declared_and_gated
+    qml = File.read(File.expand_path("../frontend/quickshell/shell.qml", __dir__))
+
+    assert_match(/property bool narrowLayout: panel\.width < \d+/, qml,
+      "narrowLayout breakpoint not declared on root")
+    assert_match(/property bool shortViewport: panel\.height < \d+/, qml,
+      "shortViewport breakpoint not declared on root")
+
+    # No element binding may test raw viewport comparisons; everything keys
+    # off the declared breakpoints. (modalGeometry()'s viewport arithmetic is
+    # the one sanctioned consumer; its gsub keeps the check out of that block.)
+    refute_match(/modalFrame\.width\s*>=\s*\d/, qml)
+    refute_match(/panel\.width\s*-\s*36/, qml.gsub("Math.max(320, panel.width - 36)", "MODAL_WIDTH_FLOOR"))
+    refute_match(/triageSplit\.width\s*>=\s*\d/, qml)
+
+    # The contribution side panel (the widest fixed-pane element the viewport
+    # can starve) is gated on narrowLayout, and only narrowLayout.
+    assert_match(/visible:\s*!root\.narrowLayout\b/, qml,
+      "contribution side panel not gated on narrowLayout")
+
+    # On a very short viewport the roomy reader loses only its keyboard-hints
+    # line (the actions themselves stay enabled); assert the fold exists.
+    assert_match(/visible:\s*!root\.shortViewport/, qml,
+      "reader keyboard-hints line not gated on shortViewport")
+  end
+
   # Scroll affordance: a scrollable list must say so. The overview repo list
   # carries a visible count plus a "· scroll" cue whenever its content
   # overflows the viewport, and the list itself offers an AsNeeded scrollbar

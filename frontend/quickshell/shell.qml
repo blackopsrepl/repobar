@@ -18,6 +18,13 @@ ShellRoot {
     property string stateEventPath: stateDir + "/state-event.json"
     property string textFont: "Fira Code"
 
+    // Responsive breakpoints (the family's declared-threshold pattern):
+    // bindings below key off these two root properties instead of raw
+    // viewport comparisons, so every layout branch has one readable name
+    // and nothing silently hides without its narrow fallback.
+    property bool narrowLayout: panel.width < 720
+    property bool shortViewport: panel.height < 560
+
     // Omarchy theme wiring: live-follows the active Omarchy theme palette
     // (the same colors.toml the Omarchy shell reads). Falls back to the
     // built-in palette where a key is absent or Omarchy is not running.
@@ -1924,7 +1931,7 @@ ShellRoot {
                             Rectangle {
                                 Layout.preferredWidth: 220
                                 Layout.fillHeight: true
-                                visible: modalFrame.width >= 760
+                                visible: !root.narrowLayout
                                 color: root.theme.bg
                                 border.color: root.theme.border
                                 border.width: 1
@@ -2392,7 +2399,7 @@ ShellRoot {
                             Layout.fillWidth: false
                             Layout.fillHeight: true
                             spacing: 0
-                            visible: triageSplit.width >= 720
+                            visible: !root.narrowLayout
 
                             Rectangle {
                                 Layout.fillWidth: true
@@ -2545,8 +2552,12 @@ ShellRoot {
                         // snapshot, newest first, grouped by attention.
                         ColumnLayout {
                             id: inboxCol
-                            Layout.preferredWidth: Math.min(420, triageSplit.width * 0.44)
-                            Layout.maximumWidth: Math.min(460, Math.max(240, triageSplit.width * 0.5))
+                            // Narrow triage gives the inbox a fixed compact
+                            // width and lets the reader flow under the fold —
+                            // both panes keep their own scroll, so nothing is
+                            // unreachable on a small window.
+                            Layout.preferredWidth: root.narrowLayout ? 300 : Math.min(420, triageSplit.width * 0.44)
+                            Layout.maximumWidth: root.narrowLayout ? 320 : Math.min(460, Math.max(240, triageSplit.width * 0.5))
                             Layout.fillWidth: false
                             Layout.fillHeight: true
                             spacing: 0
@@ -2709,8 +2720,10 @@ ShellRoot {
                             id: readerCol
                             Layout.fillWidth: true
                             Layout.fillHeight: true
-                            Layout.minimumWidth: 300
-                            Layout.preferredWidth: Math.max(300, triageSplit.width - Math.min(420, triageSplit.width * 0.44) - 1)
+                            Layout.minimumWidth: root.narrowLayout ? 200 : 300
+                            Layout.preferredWidth: root.narrowLayout
+                                ? Math.max(200, triageSplit.width - 320 - 1)
+                                : Math.max(300, triageSplit.width - Math.min(420, triageSplit.width * 0.44) - 1)
                             spacing: 8
 
                             Item {
@@ -3114,6 +3127,7 @@ ShellRoot {
                                             Layout.leftMargin: 10
                                             Layout.rightMargin: 10
                                             Layout.bottomMargin: 10
+                                            visible: !root.shortViewport
                                             text: "j / k move  ·  n / p next flagged  ·  1-9 jump  ·  / filter  ·  f flagged  ·  s quiet  ·  g grouping  ·  [ ] repo  ·  A all repos  ·  o open  ·  t thread  ·  r refresh"
                                             color: root.theme.borderStrong
                                             font.family: root.textFont
@@ -3294,7 +3308,7 @@ ShellRoot {
                                             color: root.theme.textMuted
                                             font.family: root.textFont
                                             font.pixelSize: 10
-                                            Layout.preferredWidth: modalFrame.width < 560 ? 108 : 136
+                                            Layout.preferredWidth: root.narrowLayout ? 108 : 136
                                             Layout.maximumWidth: 150
                                             elide: Text.ElideRight
                                         }
