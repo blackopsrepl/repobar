@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.3.0](https://github.com/blackopsrepl/repobar/compare/v2.2.0...v2.3.0) (2026-10-14)
+
+
+### Features
+
+* **panel:** announce scrollable lists with a count and a scroll cue 887ccc8
+* **panel:** declare narrow and short breakpoints for every layout branch 68ef1c1
+
+
+### Bug Fixes
+
+* **panel:** let the card strip wrap at the width floor ffad98c
+* **panel:** measure Flow wrap rows imperatively 4016e12
+* **panel:** reflow the repo action row instead of starving the card 30aab3d
+* **panel:** size the modal from content, not the screen 224b1d7
+* **panel:** squeeze and grow the pinned-card action strip at the width floor e86b0b8
+
 ## [2.2.0](https://github.com/blackopsrepl/repobar/compare/v2.1.1...v2.2.0) (2026-10-12)
 
 ### Features
