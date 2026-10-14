@@ -40,7 +40,7 @@
 ## UI Rules
 
 - Edit `frontend/quickshell/shell.qml` for the human UI.
-- Keep the modal overlay screen-centered vertically and horizontally, with enough height for the account heatmap, reader, and multiple repo cards.
+- The panel is a bounded bar drop-down, not a screen overlay: it hangs from the top bar edge (chip's side, left-of-center) with enough height for the account heatmap, reader, and multiple repo cards, capped to the viewport; the desktop outside the bounded surface stays interactive.
 - Keep repo action controls compact and icon-led. Current repo-card controls are pinned drag handle, open, read, refresh, pin/unpin, and hide.
 - Preserve the bounded layout: repo heatmaps may clip inside their track, but controls must not push outside the panel bounds.
 - Keep account heatmaps, repo heatmaps, issue/PR reader data, pinned state, and pinned order driven by presenter/config output, not ad hoc UI fetches.
