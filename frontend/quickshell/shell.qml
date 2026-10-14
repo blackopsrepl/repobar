@@ -1555,8 +1555,14 @@ ShellRoot {
         var screen = root.panelScreen()
         var topMargin = root.panelTopMargin
         var contentHeight = topMargin + Math.max(listCountedHeight, triageCountedHeight)
-        var height = Math.min(Math.max(420, contentHeight), screen.height - topMargin - 12)
-        var width = Math.min((root.triageMode() || root.selectedRepository !== null ? 1280 : 960), Math.max(360, screen.width - 36))
+        // One app, one size: the window is the same in overview, detail and
+        // triage. The height IS the counted content (the larger of the two
+        // mode contents), clamped only by the screen; there is no per-mode
+        // floor resize and no per-mode width.
+        // The only resize left is the screen clamp: a shorter screen yields
+        // room, it never changes the app's shape between modes.
+        var height = Math.min(contentHeight, screen.height - topMargin - 12)
+        var width = Math.min(1280, Math.max(360, screen.width - 36))
         return { width: width, height: Math.min(screen.height - topMargin - 4, height), top: topMargin }
     }
 

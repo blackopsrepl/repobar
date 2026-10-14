@@ -89,6 +89,10 @@ class DropDownTest < Minitest::Test
     assert_match(/var repoRows = Math\.max\(1, root\.repositories\.length\)/, geometry)
     assert_match(/var rowsHeight = Math\.min\(repoRows, root\.visibleRows\(\)\) \* 204/, geometry)
     assert_match(/var listCountedHeight = chromeCounted \+ rowsHeight/, geometry)
+    # One app, one size: every mode lives in the same constant window. The
+    # counted height is the LARGER of the two mode contents — never a
+    # per-mode resize — and the height is a single constant, not a max taken
+    # at window level.
     assert_match(/var triageCountedHeight = 816/, geometry)
     assert_match(/listCountedHeight, triageCountedHeight/, geometry)
     assert_match(/var topMargin = root\.panelTopMargin/, geometry)
@@ -99,11 +103,12 @@ class DropDownTest < Minitest::Test
     assert_match(/screen\.height - topMargin - 12/, geometry)
     assert_match(/function panelScreen\(\)/, source)
     assert_match(/var contentHeight = topMargin \+ Math\.max\(listCountedHeight, triageCountedHeight\)/, geometry)
+    assert_match(/var height = Math\.min\(contentHeight, screen\.height - topMargin - 12\)/, geometry)
+    refute_match(/Math\.max\(420, contentHeight\)/, geometry,
+                 "the per-mode floor resize must not come back: the window is one size")
 
-    # The floor stays only for tiny screens and the cap is always the window
-    # height minus the top margin and a breathing gap, so the strip never
-    # reaches the screen's bottom edge.
-    assert_match(/Math\.min\(Math\.max\(420, contentHeight\), screen\.height - topMargin - 12\)/, geometry)
+    # The counted height is the window's height; the screen clamp (line above)
+    # is the only shrink, and it never differs per mode.
     # The old content-blind 18px floor must not come back.
     refute_match(/root\.popupMinHeight/, geometry)
 
@@ -127,7 +132,10 @@ class DropDownTest < Minitest::Test
     # Content-fit: triage/detail needs the wide band, plain overview the narrow
     # one; the 360px absolute floor only survives on tiny screens, and the
     # side margins are always real so the card never touches the screen edge.
-    assert_match(/Math\.min\(\(root\.triageMode\(\) \|\| root\.selectedRepository !== null \? 1280 : 960\), Math\.max\(360, screen\.width - 36\)\)/, geometry)
+    # One width for every mode and repo state — never a triage-only reskin
+    # size. The screen-room clamp stays for tiny screens only.
+    assert_match(/Math\.min\(1280, Math\.max\(360, screen\.width - 36\)\)/, geometry)
+    refute_match(/root\.triageMode\(\).*\? 1280 : 960/, geometry)
   end
 
   def test_dismissal_is_the_esc_shortcut_and_the_strip_catcher_not_a_screen_wide_catcher
