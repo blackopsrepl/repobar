@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.6.2](https://github.com/blackopsrepl/repobar/compare/v2.6.1...v2.6.2) (2026-10-14)
+
+
+### Bug Fixes
+
+* **panel:** scroll without painting an indicator over the graphics 0491b90
+
 ## [2.6.1](https://github.com/blackopsrepl/repobar/compare/v2.6.0...v2.6.1) (2026-10-14)
 
 
