@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.6.0](https://github.com/blackopsrepl/repobar/compare/v2.5.0...v2.6.0) (2026-10-14)
+
+
+### Features
+
+* **panel:** one window for every mode 25ed248
+
 ## [2.5.0](https://github.com/blackopsrepl/repobar/compare/v2.4.0...v2.5.0) (2026-10-14)
 
 ## [2.4.0](https://github.com/blackopsrepl/repobar/compare/v2.3.0...v2.4.0) (2026-10-14)
