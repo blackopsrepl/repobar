@@ -3126,9 +3126,15 @@ ShellRoot {
                                 property bool dropTarget: false
                                 property string dragFullName: (modelData.fullName || "").toString().toLowerCase()
                                 property int repoIndex: index
+                                // The action Flow wraps onto a second line when
+                                // the card is too narrow for one line of
+                                // actions; the card grows by that second band
+                                // so every control stays visible.
+                                readonly property real cardHeight:
+                                    196 + (repoActionStrip.flowRows > 1 ? (repoActionStrip.flowRows - 1) * (repoActionStrip.rowBand + repoActionStrip.spacing) : 0)
 
                                 width: repoList.width
-                                height: 196
+                                height: repoCard.cardHeight
                                 color: dropTarget ? root.theme.warnFill : root.theme.surfaceAlt
                                 border.color: dropTarget ? root.theme.warn : statusColor(modelData.status)
                                 border.width: 1
@@ -3280,9 +3286,18 @@ ShellRoot {
                                             }
                                         }
 
-                                        RowLayout {
+                                        Flow {
                                             id: repoActionStrip
-                                            Layout.preferredWidth: implicitWidth
+                                            // Width comes from the layout; the row
+                                            // wraps onto a second line instead of
+                                            // starving the heatmap track or pushing
+                                            // past the card on a narrow modal.
+                                            readonly property int flowRows: rows
+                                            readonly property real rowBand: 38
+                                            Layout.fillWidth: false
+                                            Layout.alignment: Qt.AlignRight
+                                            Layout.maximumWidth: repoCard.width - 20
+                                            Layout.preferredHeight: 38
                                             spacing: 2
 
                                             DragHandle {

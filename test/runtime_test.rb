@@ -228,4 +228,31 @@ class RuntimeTest < Minitest::Test
     # the modal below the content height instead of overflowing the screen.
     assert_match(/Math\.min\(panel\.height\s*-\s*4\b/, geometry_block)
   end
+
+  # The pinned card's preferred action row (drag + 5 buttons + spacing, and the
+  # heatmap label before it) cannot fit the 320px modal width floor. The row
+  # must reflow with Flow instead of staying a fixed RowLayout, and every
+  # action must remain visible and clickable — no overflow menu that hides
+  # repo mutations behind an extra click.
+  def test_shell_qml_repo_action_strip_reflows_on_narrow_cards
+    qml = File.read(File.expand_path("../frontend/quickshell/shell.qml", __dir__))
+
+    strip_block = qml[/id:\s*repoActionStrip\n(.*?\n            \}\n)/m, 1].to_s
+    refute_empty strip_block, "repoActionStrip not found"
+
+    # Flow reflows; a RowLayout keeps one fixed line and clips or starves.
+    strip_head = qml[/\bFlow \{\n\s*id: repoActionStrip/, 0].to_s
+    refute_empty strip_head, "repoActionStrip must be a Flow (not a RowLayout)"
+
+    # Every existing action stays in the flow: drag, open, read, refresh,
+    # pin/unpin, hide.
+    %w[DragHandle repoUrl(modelData) selectedRepository = workItems(modelData)
+       "unpin" : "pin" "hide"].each do |needle|
+      assert_includes strip_block, needle, "action missing from the reflowed strip: #{needle}"
+    end
+
+    # The strip must not claim the full row width (which is what starves the
+    # heatmap track); it wraps instead.
+    refute_match(/Layout\.fillWidth:\s*true/, strip_block)
+  end
 end
