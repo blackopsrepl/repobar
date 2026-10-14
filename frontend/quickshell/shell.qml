@@ -3341,8 +3341,28 @@ ShellRoot {
                                             // wraps onto a second line instead of
                                             // starving the heatmap track or pushing
                                             // past the card on a narrow modal.
-                                            readonly property int flowRows: rows
+                                            // Flow does not expose its row count,
+                                            // so measure the wrapped children —
+                                            // a failed binding here would leave
+                                            // extra rows clipped inside the card.
+                                            property int flowRows: 1
                                             readonly property real rowBand: 38
+                                            function measureRows() {
+                                                var count = 0
+                                                var lastY = -1
+                                                for (var i = 0; i < children.length; i++) {
+                                                    var child = children[i]
+                                                    if (!child.visible) { continue }
+                                                    if (child.y !== lastY) {
+                                                        count++
+                                                        lastY = child.y
+                                                    }
+                                                }
+                                                flowRows = Math.max(1, count)
+                                            }
+                                            onWidthChanged: Qt.callLater(measureRows)
+                                            onVisibleChanged: Qt.callLater(measureRows)
+                                            Component.onCompleted: Qt.callLater(measureRows)
                                             Layout.fillWidth: false
                                             Layout.alignment: Qt.AlignRight
                                             Layout.maximumWidth: repoCard.width - 20
