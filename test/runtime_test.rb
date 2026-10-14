@@ -195,4 +195,37 @@ class RuntimeTest < Minitest::Test
       assert_match(/id:\s*#{id}/, qml, "missing triage element #{id}")
     end
   end
+
+  # The modal frame must size itself from content and the real viewport, not
+  # grow to almost the whole screen on every display: the 420px floor may only
+  # apply on genuinely tiny screens, and the 18px declared margins must reach
+  # the modal instead of being overridden by centering.
+  def test_shell_qml_modal_height_fits_viewport_with_margins
+    qml = File.read(File.expand_path("../frontend/quickshell/shell.qml", __dir__))
+
+    lines = qml.lines
+    frame_line = lines.index { |line| line =~ /id:\s*modalFrame/ }
+    refute_nil frame_line, "modalFrame not found"
+    height_line = lines[frame_line + 1..frame_line + 6]
+      .find { |line| line.lstrip.start_with?("height:") }.to_s
+    refute_empty height_line, "modalFrame height expression not found"
+
+    # The frame reads its height from the modalGeometry() geometry property;
+    # a hand-clamped inline expression with an unconditional 420px floor must
+    # not come back.
+    assert_includes height_line, "modalFrame.geometry.height"
+    refute_match(/Math\.max\(420,/, height_line)
+
+    geometry_block = qml[/function modalGeometry\(\) \{(.*?\n    \}\n)/m, 1].to_s
+    refute_empty geometry_block, "modalGeometry() not found"
+
+    # Content-derived height: cards × pitch + chrome, floored by the heatmap
+    # band, clamped first to the viewport minus real margins...
+    assert_match(/Math\.min\(availableHeight, contentHeight\)/, geometry_block)
+    assert_match(/contentHeight\s*=\s*chrome/, geometry_block)
+    assert_match(/availableHeight\s*=\s*Math\.max\([^)]*,\s*panel\.height\s*-\s*\(root\.modalMargin\s*\*\s*2\)\)/, geometry_block)
+    # ...and then by a final outer clamp, so a short screen can still shrink
+    # the modal below the content height instead of overflowing the screen.
+    assert_match(/Math\.min\(panel\.height\s*-\s*4\b/, geometry_block)
+  end
 end

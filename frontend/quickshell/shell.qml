@@ -1462,6 +1462,24 @@ ShellRoot {
         runRepobar(["ui", "mode", "overview"])
     }
 
+    // Modal geometry: the frame wraps its content instead of filling the
+    // screen. Cards dominate the height (204px pitch: 196 card + 8 list
+    // spacing), so derive the height from the visible row count plus measured
+    // chrome, keep a floor that preserves the account heatmap band, and clamp
+    // the result to the viewport minus real margins so no card can grow the
+    // frame past the screen on any display.
+    readonly property int modalMargin: 18
+    function modalGeometry() {
+        var chrome = 14 * 2 + 8 + 22 + 8 + 104 + 8 + 40 + 12 + 2 + 12
+        var cardRows = Math.max(1, root.repositories.length)
+        var rowHeight = 196 + 8
+        var contentHeight = chrome + cardRows * rowHeight
+        var availableHeight = Math.max(0, panel.height - (root.modalMargin * 2))
+        var height = Math.max(420, Math.min(availableHeight, contentHeight))
+        var width = Math.min(root.triageMode() || root.selectedRepository !== null ? 1280 : 960, Math.max(320, panel.width - 36))
+        return { width: width, height: Math.min(panel.height - 4, height) }
+    }
+
     function showTriageMode() {
         runRepobar(["ui", "mode", "triage"])
     }
@@ -1596,7 +1614,8 @@ ShellRoot {
         id: panel
         visible: uiAdapter.open
         screen: Quickshell.screens.length ? Quickshell.screens[0] : null
-        property int verticalMargin: 18
+        // Full-screen layer surface: modalGeometry() clamps the centered
+        // frame to this viewport, so no margins are needed on the window.
         implicitWidth: screen ? screen.width : 960
         implicitHeight: screen ? screen.height : 760
         color: "transparent"
@@ -1750,8 +1769,9 @@ ShellRoot {
             Rectangle {
                 id: modalFrame
                 anchors.centerIn: parent
-                width: Math.min(root.triageMode() || root.selectedRepository !== null ? 1280 : 960, Math.max(320, panel.width - 36))
-                height: Math.min(panel.height - 16, Math.max(420, panel.height - (panel.verticalMargin * 2)))
+                readonly property var geometry: root.modalGeometry()
+                width: modalFrame.geometry.width
+                height: modalFrame.geometry.height
                 color: root.theme.bg
                 border.color: root.theme.good
                 border.width: 1
