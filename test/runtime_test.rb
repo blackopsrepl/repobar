@@ -255,4 +255,26 @@ class RuntimeTest < Minitest::Test
     # heatmap track); it wraps instead.
     refute_match(/Layout\.fillWidth:\s*true/, strip_block)
   end
+
+  # Scroll affordance: a scrollable list must say so. The overview repo list
+  # carries a visible count plus a "· scroll" cue whenever its content
+  # overflows the viewport, and the list itself offers an AsNeeded scrollbar
+  # instead of no scroll hint at all.
+  def test_shell_qml_repo_list_has_scroll_affordance
+    qml = File.read(File.expand_path("../frontend/quickshell/shell.qml", __dir__))
+
+    assert_match(/function scrollCueText\(/, qml, "scroll cue helper missing")
+    assert_match(/scrollCueText\(.*repoList\.contentHeight,\s*repoList\.height\)/, qml,
+      "repo list header does not derive the scroll cue from the list viewport")
+
+    repo_list_block = qml[/ListView \{\n\s*id: repoList\b(.*?)(?=\n\s*delegate:|\n\s*MouseArea \{)/m, 1].to_s
+    refute_empty repo_list_block, "repoList not found"
+    assert_match(/ScrollBar\.vertical:\s*ScrollBar \{ policy: ScrollBar\.AsNeeded \}/, repo_list_block)
+
+    %w[overviewWorkList repoRailList inboxList].each do |list_id|
+      block = qml[/id:\s*#{list_id}\b(.*?)\n\s*delegate:/m, 1].to_s
+      assert_match(/ScrollBar\.vertical:\s*ScrollBar \{ policy: ScrollBar\.AsNeeded \}/, block,
+        "#{list_id} still uses an always-on or absent scrollbar")
+    end
+  end
 end

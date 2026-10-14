@@ -1160,6 +1160,13 @@ ShellRoot {
         return root.triageRepo
     }
 
+    // Scroll affordance: name the count and say "· scroll" only when the list
+    // actually overflows, so the cue appears exactly when there is something
+    // below the fold.
+    function scrollCueText(count, contentHeight, viewportHeight) {
+        return count + " visible" + (contentHeight > viewportHeight ? " · scroll" : "")
+    }
+
     function selectedTriageItem() {
         var items = root.filteredTriageItems()
         return (root.triageIndex >= 0 && root.triageIndex < items.length) ? items[root.triageIndex] : null
@@ -2050,6 +2057,31 @@ ShellRoot {
                     color: root.theme.border
                 }
 
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: !root.triageMode() && root.selectedRepository === null
+                    spacing: 6
+
+                    Text {
+                        Layout.leftMargin: 14
+                        text: "Repositories"
+                        color: root.theme.text
+                        font.family: root.textFont
+                        font.pixelSize: 12
+                        font.bold: true
+                    }
+                    Item {
+                        Layout.fillWidth: true
+                    }
+                    Text {
+                        Layout.rightMargin: 14
+                        text: root.scrollCueText(repositories.length, repoList.contentHeight, repoList.height)
+                        color: root.theme.textMuted
+                        font.family: root.textFont
+                        font.pixelSize: 10
+                    }
+                }
+
                 ColumnLayout {
                     Layout.fillWidth: true
                     visible: root.searchPanelVisible() && !root.triageMode()
@@ -2235,7 +2267,7 @@ ShellRoot {
                                 model: root.overviewItems
                                 clip: true
                                 spacing: 6
-                                ScrollBar.vertical: ScrollBar {}
+                                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
                                 delegate: Rectangle {
                                     required property var modelData
@@ -2403,6 +2435,7 @@ ShellRoot {
                                 spacing: 2
                                 model: root.triageRepos()
                                 topMargin: 4
+                                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
                                 delegate: Rectangle {
                                     id: repoRailRow
@@ -2626,6 +2659,7 @@ ShellRoot {
                                 model: root.triageRows()
                                 currentIndex: -1
                                 cacheBuffer: 900
+                                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
                                 delegate: Item {
                                     width: inboxList.width
@@ -3101,6 +3135,7 @@ ShellRoot {
                     spacing: 8
                     visible: !root.triageMode() && root.selectedRepository === null
                     model: repositories
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
                     MouseArea {
                         property int wheelFlickSpeed: 5
