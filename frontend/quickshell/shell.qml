@@ -3300,7 +3300,7 @@ ShellRoot {
 
                                     RowLayout {
                                         Layout.fillWidth: true
-                                        Layout.preferredHeight: 38
+                                        Layout.preferredHeight: repoActionStrip.flowRows * (repoActionStrip.rowBand + repoActionStrip.spacing) - repoActionStrip.spacing
                                         spacing: 8
 
                                         Text {
@@ -3365,8 +3365,9 @@ ShellRoot {
                                             Component.onCompleted: Qt.callLater(measureRows)
                                             Layout.fillWidth: false
                                             Layout.alignment: Qt.AlignRight
+                                            Layout.minimumWidth: 0
                                             Layout.maximumWidth: repoCard.width - 20
-                                            Layout.preferredHeight: 38
+                                            Layout.preferredHeight: flowRows * (rowBand + spacing) - spacing
                                             spacing: 2
 
                                             DragHandle {
