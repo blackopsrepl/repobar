@@ -180,15 +180,16 @@ class DropDownTest < Minitest::Test
   end
 
   def test_cards_and_frame_take_the_family_radius_drop
-    # radius 8 on the frame, and the property inside the frame element itself:
-    # the segment allows exactly one nested brace level (the anchors block) and
-    # stops well before the frame's closing brace, so the match is scoped to
-    # the element instead of anywhere in the file.
-    assert_match(/id: modalFrame(?:(?!\{)[^{}])*(\{(?:[^{}]*)\})?(?:(?!\{)[^{}])*radius: 8/m, panel_source)
-
-    # The old cramped card radius must not survive on the modal frame.
+    # The family aesthetic is square-cornered: the modal frame — like
+    # every card, button and badge in the panel — must not round its
+    # corners. The block extract stops at the frame's next statement so
+    # the assertion stays scoped to the element itself.
     frame_block = panel_source[/id: modalFrame(.*?)Keys\.onEscapePressed/m, 1].to_s
-    refute_includes frame_block, "radius: 4"
+    refute_empty frame_block, "modal frame block not found"
+    assert_match(/id: modalFrame(?:(?!\{)[^{}])*(\{(?:[^{}]*)\})?(?:(?!\{)[^{}])*radius: 0/m, panel_source)
+
+    # No old rounded-corner value may survive on the modal frame.
+    refute_match(/radius:[ \t]*(?!0\b|3\.5|1\.5|1\b|2\b)[0-9]/, frame_block)
   end
 
   def test_ui_docs_describe_the_bounded_drop_down_and_its_dismissal_trade

@@ -185,7 +185,7 @@ ShellRoot {
         Accessible.role: Accessible.Button
 
         background: Rectangle {
-            radius: 4
+            radius: 0
             color: !actionButton.enabled ? root.theme.surfaceDeep : actionButton.down ? root.theme.surfaceDown : actionButton.hovered ? root.theme.surfaceHover : actionButton.active ? actionButton.activeFillColor : root.theme.surfaceDeep
             border.width: 1
             border.color: !actionButton.enabled ? root.theme.border : actionButton.active ? actionButton.accentColor : actionButton.hovered ? root.theme.info : root.theme.border
@@ -319,7 +319,7 @@ ShellRoot {
         Accessible.role: Accessible.Button
 
         background: Rectangle {
-            radius: 4
+            radius: 0
             color: actionButton.down ? root.theme.surfaceDown
                 : actionButton.hovered ? root.theme.surfaceHover : root.theme.surfaceDeep
             border.width: 1
@@ -356,7 +356,7 @@ ShellRoot {
             x: 8
             width: separatorLabel.implicitWidth + 12
             height: 16
-            radius: 3
+            radius: 0
             color: root.theme.surfaceDeep
 
             Text {
@@ -386,7 +386,7 @@ ShellRoot {
             anchors.fill: parent
             anchors.leftMargin: 2
             anchors.rightMargin: 2
-            radius: 3
+            radius: 0
             color: triageRow.rowSelected ? root.theme.surfaceSelect : (rowHover.containsMouse ? root.theme.surfaceHover : "transparent")
             border.width: 1
             border.color: triageRow.rowSelected ? root.theme.info : "transparent"
@@ -423,7 +423,7 @@ ShellRoot {
             Rectangle {
                 Layout.preferredWidth: 24
                 Layout.preferredHeight: 15
-                radius: 3
+                radius: 0
                 color: Qt.rgba(triageRow.rowData && triageRow.rowData.kind === "pr" ? root.theme.goodSoft.r : root.theme.info.r, triageRow.rowData && triageRow.rowData.kind === "pr" ? root.theme.goodSoft.g : root.theme.info.g, triageRow.rowData && triageRow.rowData.kind === "pr" ? root.theme.goodSoft.b : root.theme.info.b, 0.16)
 
                 Text {
@@ -525,7 +525,7 @@ ShellRoot {
             anchors.leftMargin: threadEntry.entry && threadEntry.entry.inReplyToId > 0 ? 56 : 44
             anchors.right: parent.right
             height: parent.height
-            radius: 6
+            radius: 0
             color: root.theme.surfaceAlt
             border.width: 1
             border.color: threadEntry.entry && threadEntry.entry.state === "CHANGES_REQUESTED" ? root.theme.bad : root.theme.border
@@ -631,7 +631,7 @@ ShellRoot {
             implicitHeight: conversationError.implicitHeight + 20
             color: root.triageToneFill("bad")
             border.color: root.theme.bad
-            radius: 4
+            radius: 0
             Text {
                 id: conversationError
                 anchors.fill: parent
@@ -691,7 +691,7 @@ ShellRoot {
 
         width: avatarBox.boxSize
         height: avatarBox.boxSize
-        radius: 4
+        radius: 0
         color: root.theme.bg
         border.color: root.theme.border
         border.width: 1
@@ -733,7 +733,7 @@ ShellRoot {
 
         implicitWidth: filterChipText.implicitWidth + 16
         implicitHeight: 20
-        radius: 3
+        radius: 0
         color: filterChip.active ? root.triageToneFill(filterChip.tone) : (filterHover.containsMouse ? root.theme.surfaceHover : root.theme.surfaceDeep)
         border.width: 1
         border.color: filterChip.active ? root.triageToneColor(filterChip.tone) : root.theme.border
@@ -770,7 +770,7 @@ ShellRoot {
 
         implicitWidth: signalDot.implicitWidth + 4 + signalText.implicitWidth + 8
         implicitHeight: 14
-        radius: 3
+        radius: 0
         color: "transparent"
 
         ToolTip.delay: 350
@@ -822,7 +822,7 @@ ShellRoot {
         Accessible.role: Accessible.Button
 
         background: Rectangle {
-            radius: 4
+            radius: 0
             color: modeTab.selected ? root.theme.surfaceSelect : modeTab.hovered ? root.theme.surfaceHover : root.theme.surfaceDeep
             border.width: 1
             border.color: modeTab.selected ? root.theme.accent : root.theme.border
@@ -866,7 +866,7 @@ ShellRoot {
 
         Rectangle {
             anchors.fill: parent
-            radius: 4
+            radius: 0
             color: handle.active ? root.theme.warnFill : dragArea.containsMouse ? root.theme.warnHover : root.theme.surfaceDeep
             border.width: 1
             border.color: handle.active || dragArea.containsMouse ? handle.accentColor : root.theme.border
@@ -1877,7 +1877,7 @@ ShellRoot {
                 width: modalFrame.width
                 height: modalFrame.height
                 color: Qt.rgba(0, 0, 0, 0.35)
-                radius: 10
+                radius: 0
                 visible: modalFrame.visible
             }
 
@@ -1895,7 +1895,7 @@ ShellRoot {
                 color: root.theme.bg
                 border.color: root.theme.good
                 border.width: 1
-                radius: 8
+                radius: 0
                 // Swallow clicks that land on the card but miss every control,
                 // so dead space inside the popover stays interactive without
                 // reaching the strip catcher beneath the card.
@@ -2048,7 +2048,7 @@ ShellRoot {
                         color: root.theme.surfaceDeep
                         border.color: root.theme.border
                         border.width: 1
-                        radius: 4
+                        radius: 0
 
                         RowLayout {
                             anchors.fill: parent
@@ -2111,7 +2111,7 @@ ShellRoot {
                                 color: root.theme.bg
                                 border.color: root.theme.border
                                 border.width: 1
-                                radius: 3
+                                radius: 0
 
                                 ColumnLayout {
                                     anchors.fill: parent
@@ -2304,7 +2304,7 @@ ShellRoot {
                             color: searchData.selectedFullName === modelData.fullName.toString().toLowerCase() ? root.theme.surfaceSelect : root.theme.surfaceAlt
                             border.color: searchData.selectedFullName === modelData.fullName.toString().toLowerCase() ? root.theme.info : root.theme.border
                             border.width: 1
-                            radius: 4
+                            radius: 0
 
                             MouseArea {
                                 anchors.fill: parent
@@ -2319,7 +2319,7 @@ ShellRoot {
                                 Rectangle {
                                     Layout.preferredWidth: 34
                                     Layout.preferredHeight: 34
-                                    radius: 4
+                                    radius: 0
                                     color: root.theme.bg
                                     border.color: root.theme.border
                                     border.width: 1
@@ -2414,7 +2414,7 @@ ShellRoot {
                     color: root.theme.surfaceDeep
                     border.color: root.theme.border
                     border.width: 1
-                    radius: 4
+                    radius: 0
 
                     ColumnLayout {
                         anchors.fill: parent
@@ -2461,7 +2461,7 @@ ShellRoot {
                                     required property int index
                                     width: overviewWorkList.width
                                     height: workItemText.implicitHeight + 24
-                                    radius: 4
+                                    radius: 0
                                     color: root.overviewIndex === index ? root.theme.surfaceSelect : root.theme.surfaceAlt
                                     border.color: root.overviewIndex === index ? root.theme.info : root.theme.border
                                     border.width: 1
@@ -2563,7 +2563,7 @@ ShellRoot {
                     color: root.theme.surfaceDeep
                     border.color: root.theme.border
                     border.width: 1
-                    radius: 4
+                    radius: 0
 
                     RowLayout {
                         anchors.fill: parent
@@ -2632,7 +2632,7 @@ ShellRoot {
                                     width: repoRailList.width - 8
                                     x: 4
                                     height: 52
-                                    radius: 3
+                                    radius: 0
                                     color: rowSelected ? root.theme.surfaceSelect : (repoRailHover.containsMouse ? root.theme.surfaceHover : "transparent")
                                     border.width: 1
                                     border.color: rowSelected ? root.theme.info : "transparent"
@@ -3041,7 +3041,7 @@ ShellRoot {
                                             Layout.leftMargin: 10
                                             Layout.rightMargin: 10
                                             implicitHeight: triageActionText.implicitHeight + 14
-                                            radius: 3
+                                            radius: 0
                                             color: root.selectedTriageItem() && root.selectedTriageItem().flagged ? root.triageToneFill("bad") : root.theme.surfaceAlt
                                             border.width: 1
                                             border.color: root.selectedTriageItem() && root.selectedTriageItem().flagged ? root.theme.bad : root.theme.border
@@ -3121,7 +3121,7 @@ ShellRoot {
                                             Layout.rightMargin: 10
                                             visible: root.readerContext && root.selectedTriageItem() !== null
                                             implicitHeight: repoFacts.implicitHeight + 16
-                                            radius: 3
+                                            radius: 0
                                             color: root.theme.bg
                                             border.width: 1
                                             border.color: root.theme.border
@@ -3367,7 +3367,7 @@ ShellRoot {
                                 color: dropTarget ? root.theme.warnFill : root.theme.surfaceAlt
                                 border.color: dropTarget ? root.theme.warn : statusColor(modelData.status)
                                 border.width: 1
-                                radius: 4
+                                radius: 0
 
                                 DropArea {
                                     anchors.fill: parent
@@ -3407,7 +3407,7 @@ ShellRoot {
                                         Rectangle {
                                             Layout.preferredWidth: 42
                                             Layout.preferredHeight: 42
-                                            radius: 4
+                                            radius: 0
                                             color: root.theme.bg
                                             border.color: root.theme.border
                                             border.width: 1
