@@ -41,7 +41,7 @@ class ActionStripSqueezeTest < Minitest::Test
                     "the hosting row must grow with the strip or the second action band clips inside the card"
   end
 
-  # Measured at the 320px width floor (340px headless-Sway harness): the card
+  # Measured at the 320px width floor (340px render): the card
   # interior is 295px and the activity row's other members hold
   # 20 + 108 (narrow heatmap label) + 58 (heatmap track minimum) + 16
   # (two row spacings) = 202px before the strip gets anything. A strip capped

@@ -16,7 +16,7 @@ require_relative "test_helper"
 #
 # qmllint cannot validate this file (the Quickshell ShellRoot type only exists
 # where Quickshell is installed), so the panel's load-bearing shape is asserted
-# here by source contract, complementing the headless render proof.
+# here by source contract, complementing the Lumen render proof.
 class DropDownTest < Minitest::Test
   PANEL = File.expand_path("../frontend/quickshell/shell.qml", __dir__)
 
@@ -98,7 +98,7 @@ class DropDownTest < Minitest::Test
     assert_match(/var topMargin = root\.panelTopMargin/, geometry)
     # The cap reads the SCREEN (read-only input), never the panel's own
     # derived height — sizing the surface from a value that depends on the
-    # surface is the binding loop the headless render caught.
+    # surface is the binding loop a render caught.
     assert_match(/var screen = root\.panelScreen\(\)/, geometry)
     assert_match(/screen\.height - topMargin - 12/, geometry)
     assert_match(/function panelScreen\(\)/, source)

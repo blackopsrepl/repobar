@@ -25,7 +25,7 @@ ShellRoot {
     // The breakpoints read the screen box, not the panel's own size: the
     // bounded surface's height participates in its own sizing, so a
     // panel.height read inside implicitHeight would make a binding loop
-    // (caught as a headless render warning).
+    // (caught as a render warning).
     readonly property int screenBoxWidth: root.panelScreen() ? root.panelScreen().width : 960
     readonly property int screenBoxHeight: root.panelScreen() ? root.panelScreen().height : 760
     property bool narrowLayout: root.screenBoxWidth < 720

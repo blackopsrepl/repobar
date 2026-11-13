@@ -11,7 +11,7 @@ require_relative "test_helper"
 # (radius 3.5), thin attention rails (radius 1.5), heatmap cells
 # (radius 1) and status stripes (radius 2). Fonts come from
 # Switchyard's family scale. Asserted on the source so docs and pixels
-# stay in agreement; the pixel proof is the headless render run, not
+# stay in agreement; the pixel proof is the panel's Lumen render, not
 # this file.
 class FamilyStyleTest < Minitest::Test
   PANEL = File.expand_path("../frontend/quickshell/shell.qml", __dir__)
